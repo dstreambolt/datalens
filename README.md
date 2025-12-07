@@ -29,6 +29,12 @@ dstream_bolt/
 │   │   └── alb/        # Application Load Balancer
 │   └── user_data/      # EC2 initialization scripts
 │
+├── jenkins/            # Jenkins CI/CD pipelines
+│   ├── deploy-ingestion.jenkinsfile  # Ingestion deployment pipeline
+│   ├── deploy-spark-jobs.jenkinsfile # Spark jobs deployment pipeline
+│   ├── setup_jenkins_jobs.sh         # Quick setup script
+│   └── README.md       # Jenkins jobs documentation
+│
 ├── examples/           # Example scripts and dashboards
 │   ├── 01-generate-logs.py      # Generate sample logs
 │   ├── 02-send-to-ingest.py     # Send logs to ingestion
@@ -675,7 +681,56 @@ terraform apply
 
 See [terraform/README.md](terraform/README.md) for module documentation.
 
-### 4. `examples/` - Example Scripts
+### 4. `jenkins/` - CI/CD Pipelines
+
+Jenkins pipeline scripts for automated deployments.
+
+**Key Files:**
+- `deploy-ingestion.jenkinsfile` - Ingestion service deployment
+- `deploy-spark-jobs.jenkinsfile` - Spark jobs deployment
+- `setup_jenkins_jobs.sh` - Quick setup script
+- `README.md` - Complete Jenkins documentation
+
+**Features:**
+- Deploy to single or multiple servers
+- Parallel deployment support
+- Graceful shutdown of existing jobs
+- Automatic health checks
+- Backup and rollback support
+
+**Quick Start:**
+```bash
+cd jenkins
+./setup_jenkins_jobs.sh
+
+# Or manually create jobs in Jenkins:
+# 1. New Item → Pipeline
+# 2. SCM: Git → https://github.com/dstreambolt/dstream_cloud.git
+# 3. Script Path: jenkins/deploy-ingestion.jenkinsfile
+```
+
+**Deploy Ingestion:**
+```
+Job: DStreamBolt-Deploy-Ingestion
+Parameters:
+  - TARGET_IPS: 13.201.43.125,52.66.123.45
+  - GIT_BRANCH: main
+  - RESTART_SERVICE: ✓
+```
+
+**Deploy Spark:**
+```
+Job: DStreamBolt-Deploy-Spark
+Parameters:
+  - SPARK_MASTER_IPS: 43.205.94.74
+  - KAFKA_BROKER: 10.0.10.101:9092
+  - PROCESSING_MODE: streaming
+  - AUTO_START: ✓
+```
+
+See [jenkins/README.md](jenkins/README.md) for detailed documentation.
+
+### 5. `examples/` - Example Scripts
 
 Working examples for using the platform.
 

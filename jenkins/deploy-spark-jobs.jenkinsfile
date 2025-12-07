@@ -1,0 +1,525 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'SPARK_MASTER_IPS',
+            defaultValue: '',
+            description: 'Comma-separated list of Spark master IPs (e.g., 43.205.94.74 or 43.205.94.74,52.66.123.45)'
+        )
+        string(
+            name: 'JOB_NAME_FILTER',
+            defaultValue: 'DStreamBolt',
+            description: 'Filter for killing existing Spark jobs (jobs containing this name will be killed)'
+        )
+        string(
+            name: 'GIT_BRANCH',
+            defaultValue: 'main',
+            description: 'Git branch to deploy from'
+        )
+        string(
+            name: 'SSH_KEY_PATH',
+            defaultValue: '/home/ubuntu/.ssh/dstreambolt-access-key.pem',
+            description: 'Path to SSH private key on Jenkins server'
+        )
+        string(
+            name: 'REMOTE_USER',
+            defaultValue: 'ubuntu',
+            description: 'SSH user for remote servers'
+        )
+        string(
+            name: 'KAFKA_BROKER',
+            defaultValue: '10.0.10.101:9092',
+            description: 'Kafka broker address'
+        )
+        choice(
+            name: 'PROCESSING_MODE',
+            choices: ['streaming', 'batch'],
+            description: 'Spark processing mode'
+        )
+        string(
+            name: 'SPARK_DRIVER_MEMORY',
+            defaultValue: '512m',
+            description: 'Spark driver memory'
+        )
+        string(
+            name: 'SPARK_EXECUTOR_MEMORY',
+            defaultValue: '512m',
+            description: 'Spark executor memory'
+        )
+        booleanParam(
+            name: 'GRACEFUL_SHUTDOWN',
+            defaultValue: true,
+            description: 'Wait for existing jobs to complete before killing (up to 60s)'
+        )
+        booleanParam(
+            name: 'AUTO_START',
+            defaultValue: true,
+            description: 'Automatically start the new Spark job after deployment'
+        )
+    }
+
+    environment {
+        REPO_URL = 'https://github.com/dstreambolt/dstream_cloud.git'
+        SPARK_HOME = '/opt/spark'
+        DEPLOY_PATH = '/opt/dstreambolt/computations'
+        BACKUP_PATH = '/opt/dstreambolt/backups'
+        SPARK_LOGS = '/opt/spark/logs'
+    }
+
+    stages {
+        stage('Validate Input') {
+            steps {
+                script {
+                    if (!params.SPARK_MASTER_IPS) {
+                        error("SPARK_MASTER_IPS parameter is required!")
+                    }
+
+                    // Parse IPs
+                    env.IP_LIST = params.SPARK_MASTER_IPS.replaceAll(/\s+/, '').split(',').join(' ')
+                    echo "Target Spark Masters: ${env.IP_LIST}"
+                    echo "Branch: ${params.GIT_BRANCH}"
+                    echo "Processing Mode: ${params.PROCESSING_MODE}"
+                }
+            }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                echo '📥 Checking out code from repository...'
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.GIT_BRANCH}"]],
+                    userRemoteConfigs: [[url: env.REPO_URL]]
+                ])
+
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage('Validate Spark Code') {
+            steps {
+                echo '🔍 Validating Spark code...'
+                dir('computations') {
+                    sh '''
+                        # Check if spark_processor.py exists
+                        if [ ! -f spark_processor.py ]; then
+                            echo "ERROR: spark_processor.py not found!"
+                            exit 1
+                        fi
+
+                        # Check Python syntax
+                        python3 -m py_compile spark_processor.py
+
+                        # Check requirements.txt
+                        if [ ! -f requirements.txt ]; then
+                            echo "ERROR: requirements.txt not found!"
+                            exit 1
+                        fi
+
+                        echo "✅ Code validation passed"
+                    '''
+                }
+            }
+        }
+
+        stage('Prepare Deployment Package') {
+            steps {
+                echo '📦 Creating deployment package...'
+                sh '''
+                    # Create deployment directory
+                    mkdir -p deploy_package
+
+                    # Copy Spark code
+                    cp -r computations/* deploy_package/
+
+                    # Create deployment info
+                    cat > deploy_package/DEPLOY_INFO.txt << EOF
+Build Information:
+==================
+Job: ${JOB_NAME}
+Build: ${BUILD_NUMBER}
+Commit: ${GIT_COMMIT_SHORT}
+Branch: ${GIT_BRANCH}
+Processing Mode: ${PROCESSING_MODE}
+Kafka Broker: ${KAFKA_BROKER}
+Date: $(date)
+Deployed by: ${BUILD_USER:-Jenkins}
+EOF
+
+                    # Create submission script
+                    cat > deploy_package/submit_spark_job.sh << 'EOFSCRIPT'
+#!/bin/bash
+set -e
+
+SPARK_MASTER_URL="$1"
+KAFKA_BROKER="$2"
+PROCESSING_MODE="$3"
+DRIVER_MEMORY="$4"
+EXECUTOR_MEMORY="$5"
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🚀 Submitting Spark Job"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Master: $SPARK_MASTER_URL"
+echo "Kafka: $KAFKA_BROKER"
+echo "Mode: $PROCESSING_MODE"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+${SPARK_HOME}/bin/spark-submit \\
+    --master "$SPARK_MASTER_URL" \\
+    --deploy-mode client \\
+    --driver-memory "$DRIVER_MEMORY" \\
+    --executor-memory "$EXECUTOR_MEMORY" \\
+    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \\
+    --conf spark.sql.streaming.checkpointLocation=/tmp/spark-checkpoints \\
+    --conf spark.streaming.stopGracefullyOnShutdown=true \\
+    ${DEPLOY_PATH}/spark_processor.py \\
+    --spark-master "$SPARK_MASTER_URL" \\
+    --kafka-broker "$KAFKA_BROKER" \\
+    --mode "$PROCESSING_MODE"
+EOFSCRIPT
+
+                    chmod +x deploy_package/submit_spark_job.sh
+
+                    # Create deployment tarball
+                    cd deploy_package
+                    tar -czf ../spark-jobs-${GIT_COMMIT_SHORT}.tar.gz .
+                    cd ..
+
+                    echo "✅ Package created: spark-jobs-${GIT_COMMIT_SHORT}.tar.gz"
+                    ls -lh spark-jobs-${GIT_COMMIT_SHORT}.tar.gz
+                '''
+            }
+        }
+
+        stage('Kill Existing Jobs') {
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    ips.each { ip ->
+                        echo "⏹️  Stopping existing Spark jobs on ${ip}..."
+
+                        sh """
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                -o ConnectTimeout=10 \
+                                ${REMOTE_USER}@${ip} << 'ENDSSH'
+
+                                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                echo "🔍 Finding running Spark jobs on ${ip}..."
+                                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+                                # Find Spark application IDs
+                                RUNNING_APPS=\$(${SPARK_HOME}/bin/spark-submit --status driver-20* 2>/dev/null || true)
+
+                                # Alternative: Find by process name
+                                SPARK_PIDS=\$(ps aux | grep spark_processor.py | grep -v grep | awk '{print \$2}' || true)
+
+                                if [ -z "\$SPARK_PIDS" ]; then
+                                    echo "ℹ️  No running Spark jobs found"
+                                else
+                                    echo "Found Spark PIDs: \$SPARK_PIDS"
+
+                                    # Graceful shutdown if enabled
+                                    if [ "${GRACEFUL_SHUTDOWN}" = "true" ]; then
+                                        echo "⏳ Waiting for graceful shutdown (max 60s)..."
+                                        for PID in \$SPARK_PIDS; do
+                                            kill -TERM \$PID 2>/dev/null || true
+                                        done
+
+                                        # Wait for jobs to finish
+                                        for i in {1..12}; do
+                                            STILL_RUNNING=\$(ps aux | grep spark_processor.py | grep -v grep | wc -l)
+                                            if [ "\$STILL_RUNNING" -eq "0" ]; then
+                                                echo "✅ Jobs stopped gracefully"
+                                                break
+                                            fi
+                                            echo "Waiting... (\$i/12)"
+                                            sleep 5
+                                        done
+                                    fi
+
+                                    # Force kill if still running
+                                    SPARK_PIDS=\$(ps aux | grep spark_processor.py | grep -v grep | awk '{print \$2}' || true)
+                                    if [ -n "\$SPARK_PIDS" ]; then
+                                        echo "⚠️  Force killing remaining jobs..."
+                                        for PID in \$SPARK_PIDS; do
+                                            kill -9 \$PID 2>/dev/null || true
+                                        done
+                                        sleep 2
+                                    fi
+
+                                    echo "✅ All Spark jobs stopped"
+                                fi
+ENDSSH
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Spark Masters') {
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+                    def deployTasks = [:]
+
+                    ips.each { ip ->
+                        deployTasks[ip] = {
+                            stage("Deploy to ${ip}") {
+                                echo "🚀 Deploying to Spark Master ${ip}..."
+
+                                sh """
+                                    set -e
+
+                                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                    echo "Deploying to: ${ip}"
+                                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+                                    # Test SSH connectivity
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        -o ConnectTimeout=10 \
+                                        ${REMOTE_USER}@${ip} \
+                                        "echo '✅ SSH connection successful'"
+
+                                    # Create directories
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} \
+                                        "sudo mkdir -p ${DEPLOY_PATH} ${BACKUP_PATH}"
+
+                                    # Backup current version
+                                    echo "📦 Creating backup..."
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} \
+                                        "sudo tar -czf ${BACKUP_PATH}/spark-backup-\$(date +%Y%m%d-%H%M%S).tar.gz -C ${DEPLOY_PATH} . 2>/dev/null || echo 'No existing deployment to backup'"
+
+                                    # Copy deployment package
+                                    echo "📤 Uploading new version..."
+                                    scp -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        spark-jobs-${GIT_COMMIT_SHORT}.tar.gz \
+                                        ${REMOTE_USER}@${ip}:/tmp/
+
+                                    # Extract and install
+                                    echo "📂 Extracting and installing..."
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} << 'ENDSSH'
+                                        set -e
+
+                                        # Extract new version
+                                        cd ${DEPLOY_PATH}
+                                        sudo tar -xzf /tmp/spark-jobs-${GIT_COMMIT_SHORT}.tar.gz
+
+                                        # Create virtual environment if not exists
+                                        if [ ! -d venv ]; then
+                                            echo "📦 Creating virtual environment..."
+                                            python3 -m venv venv
+                                        fi
+
+                                        # Install dependencies
+                                        echo "📥 Installing dependencies..."
+                                        sudo ${DEPLOY_PATH}/venv/bin/pip install -r ${DEPLOY_PATH}/requirements.txt --quiet
+
+                                        # Set permissions
+                                        sudo chown -R ubuntu:ubuntu ${DEPLOY_PATH}
+                                        sudo chmod +x ${DEPLOY_PATH}/submit_spark_job.sh
+
+                                        # Cleanup
+                                        rm -f /tmp/spark-jobs-${GIT_COMMIT_SHORT}.tar.gz
+
+                                        echo "✅ Installation complete"
+ENDSSH
+
+                                    echo "✅ Deployment to ${ip} completed"
+                                """
+                            }
+                        }
+                    }
+
+                    // Execute deployments in parallel
+                    parallel deployTasks
+                }
+            }
+        }
+
+        stage('Start Spark Jobs') {
+            when {
+                expression { params.AUTO_START == true }
+            }
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    ips.each { ip ->
+                        echo "▶️  Starting Spark job on ${ip}..."
+
+                        // Get private IP for Spark master URL
+                        def privateIp = sh(
+                            script: """
+                                ssh -i ${params.SSH_KEY_PATH} \
+                                    -o StrictHostKeyChecking=no \
+                                    ${params.REMOTE_USER}@${ip} \
+                                    "hostname -I | awk '{print \$1}'"
+                            """,
+                            returnStdout: true
+                        ).trim()
+
+                        def sparkMasterUrl = "spark://${privateIp}:7077"
+
+                        sh """
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} << 'ENDSSH'
+
+                                # Start job in background
+                                cd ${DEPLOY_PATH}
+
+                                # Use nohup to keep job running after SSH disconnect
+                                nohup ./submit_spark_job.sh \\
+                                    "${sparkMasterUrl}" \\
+                                    "${KAFKA_BROKER}" \\
+                                    "${PROCESSING_MODE}" \\
+                                    "${SPARK_DRIVER_MEMORY}" \\
+                                    "${SPARK_EXECUTOR_MEMORY}" \\
+                                    > ${SPARK_LOGS}/spark-job-${GIT_COMMIT_SHORT}.log 2>&1 &
+
+                                echo \$! > ${DEPLOY_PATH}/spark_job.pid
+
+                                echo "✅ Spark job started with PID: \$(cat ${DEPLOY_PATH}/spark_job.pid)"
+                                echo "📄 Log file: ${SPARK_LOGS}/spark-job-${GIT_COMMIT_SHORT}.log"
+ENDSSH
+                        """
+
+                        echo "✅ Spark job started on ${ip}"
+                    }
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    // Wait for jobs to start
+                    sleep(time: 10, unit: 'SECONDS')
+
+                    ips.each { ip ->
+                        echo "🔍 Verifying deployment on ${ip}..."
+
+                        sh """
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} << 'ENDSSH'
+
+                                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                echo "📊 Deployment Verification"
+                                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+                                # Check if files exist
+                                if [ -f ${DEPLOY_PATH}/spark_processor.py ]; then
+                                    echo "✅ spark_processor.py deployed"
+                                else
+                                    echo "❌ spark_processor.py not found"
+                                    exit 1
+                                fi
+
+                                # Check if job is running (if AUTO_START)
+                                if [ "${AUTO_START}" = "true" ]; then
+                                    if [ -f ${DEPLOY_PATH}/spark_job.pid ]; then
+                                        PID=\$(cat ${DEPLOY_PATH}/spark_job.pid)
+                                        if ps -p \$PID > /dev/null 2>&1; then
+                                            echo "✅ Spark job is running (PID: \$PID)"
+                                        else
+                                            echo "⚠️  Spark job not running (check logs)"
+                                        fi
+                                    fi
+                                fi
+
+                                # Show recent log lines
+                                if [ -f ${SPARK_LOGS}/spark-job-${GIT_COMMIT_SHORT}.log ]; then
+                                    echo ""
+                                    echo "📄 Recent logs:"
+                                    tail -20 ${SPARK_LOGS}/spark-job-${GIT_COMMIT_SHORT}.log
+                                fi
+ENDSSH
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Cleanup Old Backups') {
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    ips.each { ip ->
+                        echo "🧹 Cleaning old backups on ${ip}..."
+
+                        sh """
+                            # Keep only last 5 backups
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} \
+                                "cd ${BACKUP_PATH} && ls -t spark-backup-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r sudo rm -f || true"
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ ═══════════════════════════════════════════════════'
+            echo '✅ Spark Deployment completed successfully!'
+            echo '✅ ═══════════════════════════════════════════════════'
+            echo "Deployed to: ${env.IP_LIST}"
+            echo "Commit: ${env.GIT_COMMIT_SHORT}"
+            echo "Branch: ${params.GIT_BRANCH}"
+            echo "Processing Mode: ${params.PROCESSING_MODE}"
+
+            script {
+                if (params.AUTO_START) {
+                    echo "✅ Spark jobs are running"
+                } else {
+                    echo "ℹ️  Spark jobs not started (AUTO_START=false)"
+                    echo "To start manually, SSH to the server and run:"
+                    echo "cd ${env.DEPLOY_PATH} && ./submit_spark_job.sh"
+                }
+            }
+        }
+
+        failure {
+            echo '❌ ═══════════════════════════════════════════════════'
+            echo '❌ Spark Deployment failed!'
+            echo '❌ ═══════════════════════════════════════════════════'
+            echo 'Check the logs above for details.'
+            echo "Backups are available at: ${env.BACKUP_PATH}"
+        }
+
+        always {
+            // Archive deployment package
+            archiveArtifacts artifacts: "spark-jobs-${env.GIT_COMMIT_SHORT}.tar.gz",
+                            fingerprint: true,
+                            allowEmptyArchive: true
+
+            // Cleanup workspace
+            cleanWs()
+        }
+    }
+}
+

@@ -1,0 +1,346 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'TARGET_IPS',
+            defaultValue: '',
+            description: 'Comma-separated list of ingestion server IPs (e.g., 13.201.43.125 or 13.201.43.125,52.66.123.45)'
+        )
+        string(
+            name: 'GIT_BRANCH',
+            defaultValue: 'main',
+            description: 'Git branch to deploy from'
+        )
+        string(
+            name: 'SSH_KEY_PATH',
+            defaultValue: '/home/ubuntu/.ssh/dstreambolt-access-key.pem',
+            description: 'Path to SSH private key on Jenkins server'
+        )
+        string(
+            name: 'REMOTE_USER',
+            defaultValue: 'ubuntu',
+            description: 'SSH user for remote servers'
+        )
+        booleanParam(
+            name: 'RESTART_SERVICE',
+            defaultValue: true,
+            description: 'Restart the ingestion service after deployment'
+        )
+        booleanParam(
+            name: 'RUN_TESTS',
+            defaultValue: true,
+            description: 'Run health checks after deployment'
+        )
+    }
+
+    environment {
+        REPO_URL = 'https://github.com/dstreambolt/dstream_cloud.git'
+        SERVICE_NAME = 'ingest-api'
+        DEPLOY_PATH = '/opt/dstreambolt/agent'
+        BACKUP_PATH = '/opt/dstreambolt/backups'
+    }
+
+    stages {
+        stage('Validate Input') {
+            steps {
+                script {
+                    if (!params.TARGET_IPS) {
+                        error("TARGET_IPS parameter is required!")
+                    }
+
+                    // Parse IPs
+                    env.IP_LIST = params.TARGET_IPS.replaceAll(/\s+/, '').split(',').join(' ')
+                    echo "Target IPs: ${env.IP_LIST}"
+                    echo "Branch: ${params.GIT_BRANCH}"
+                }
+            }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                echo '📥 Checking out code from repository...'
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.GIT_BRANCH}"]],
+                    userRemoteConfigs: [[url: env.REPO_URL]]
+                ])
+
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage('Validate Ingestion Code') {
+            steps {
+                echo '🔍 Validating Python code...'
+                dir('ingestion') {
+                    sh '''
+                        # Check if app.py exists
+                        if [ ! -f app.py ]; then
+                            echo "ERROR: app.py not found!"
+                            exit 1
+                        fi
+
+                        # Check Python syntax
+                        python3 -m py_compile app.py
+
+                        # Check requirements.txt
+                        if [ ! -f requirements.txt ]; then
+                            echo "ERROR: requirements.txt not found!"
+                            exit 1
+                        fi
+
+                        echo "✅ Code validation passed"
+                    '''
+                }
+            }
+        }
+
+        stage('Prepare Deployment Package') {
+            steps {
+                echo '📦 Creating deployment package...'
+                sh '''
+                    # Create deployment directory
+                    mkdir -p deploy_package
+
+                    # Copy ingestion code
+                    cp -r ingestion/* deploy_package/
+
+                    # Create deployment info
+                    cat > deploy_package/DEPLOY_INFO.txt << EOF
+Build Information:
+==================
+Job: ${JOB_NAME}
+Build: ${BUILD_NUMBER}
+Commit: ${GIT_COMMIT_SHORT}
+Branch: ${GIT_BRANCH}
+Date: $(date)
+Deployed by: ${BUILD_USER:-Jenkins}
+EOF
+
+                    # Create deployment tarball
+                    cd deploy_package
+                    tar -czf ../ingestion-${GIT_COMMIT_SHORT}.tar.gz .
+                    cd ..
+
+                    echo "✅ Package created: ingestion-${GIT_COMMIT_SHORT}.tar.gz"
+                    ls -lh ingestion-${GIT_COMMIT_SHORT}.tar.gz
+                '''
+            }
+        }
+
+        stage('Deploy to Servers') {
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+                    def deployTasks = [:]
+
+                    ips.each { ip ->
+                        deployTasks[ip] = {
+                            stage("Deploy to ${ip}") {
+                                echo "🚀 Deploying to ${ip}..."
+
+                                sh """
+                                    set -e
+
+                                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                    echo "Deploying to: ${ip}"
+                                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+                                    # Test SSH connectivity
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        -o ConnectTimeout=10 \
+                                        ${REMOTE_USER}@${ip} \
+                                        "echo '✅ SSH connection successful'"
+
+                                    # Create backup directory
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} \
+                                        "sudo mkdir -p ${BACKUP_PATH}"
+
+                                    # Backup current version
+                                    echo "📦 Creating backup..."
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} \
+                                        "sudo tar -czf ${BACKUP_PATH}/ingest-backup-\$(date +%Y%m%d-%H%M%S).tar.gz -C ${DEPLOY_PATH} . 2>/dev/null || echo 'No existing deployment to backup'"
+
+                                    # Copy deployment package
+                                    echo "📤 Uploading new version..."
+                                    scp -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ingestion-${GIT_COMMIT_SHORT}.tar.gz \
+                                        ${REMOTE_USER}@${ip}:/tmp/
+
+                                    # Extract and install
+                                    echo "📂 Extracting and installing..."
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} << 'ENDSSH'
+                                        set -e
+
+                                        # Stop service
+                                        echo "⏸️  Stopping service..."
+                                        sudo systemctl stop ${SERVICE_NAME} || echo "Service not running"
+
+                                        # Extract new version
+                                        cd ${DEPLOY_PATH}
+                                        sudo tar -xzf /tmp/ingestion-${GIT_COMMIT_SHORT}.tar.gz
+
+                                        # Install dependencies
+                                        echo "📥 Installing dependencies..."
+                                        sudo ${DEPLOY_PATH}/venv/bin/pip install -r ${DEPLOY_PATH}/requirements.txt --quiet
+
+                                        # Set permissions
+                                        sudo chown -R ubuntu:ubuntu ${DEPLOY_PATH}
+
+                                        # Cleanup
+                                        rm -f /tmp/ingestion-${GIT_COMMIT_SHORT}.tar.gz
+
+                                        echo "✅ Installation complete"
+ENDSSH
+
+                                    echo "✅ Deployment to ${ip} completed"
+                                """
+                            }
+                        }
+                    }
+
+                    // Execute deployments in parallel
+                    parallel deployTasks
+                }
+            }
+        }
+
+        stage('Restart Services') {
+            when {
+                expression { params.RESTART_SERVICE == true }
+            }
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    ips.each { ip ->
+                        echo "🔄 Restarting service on ${ip}..."
+
+                        sh """
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} \
+                                "sudo systemctl restart ${SERVICE_NAME} && sleep 3 && sudo systemctl status ${SERVICE_NAME} --no-pager"
+                        """
+
+                        echo "✅ Service restarted on ${ip}"
+                    }
+                }
+            }
+        }
+
+        stage('Health Checks') {
+            when {
+                expression { params.RUN_TESTS == true }
+            }
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    ips.each { ip ->
+                        echo "🏥 Running health check on ${ip}..."
+
+                        sh """
+                            # Wait for service to be ready
+                            sleep 5
+
+                            # Check service status
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} \
+                                "sudo systemctl is-active ${SERVICE_NAME}"
+
+                            # Test health endpoint
+                            HEALTH_STATUS=\$(ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} \
+                                "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/health")
+
+                            if [ "\$HEALTH_STATUS" = "200" ]; then
+                                echo "✅ Health check passed for ${ip}"
+                            else
+                                echo "❌ Health check failed for ${ip} (HTTP \$HEALTH_STATUS)"
+                                exit 1
+                            fi
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Cleanup Old Backups') {
+            steps {
+                script {
+                    def ips = env.IP_LIST.split()
+
+                    ips.each { ip ->
+                        echo "🧹 Cleaning old backups on ${ip}..."
+
+                        sh """
+                            # Keep only last 5 backups
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} \
+                                "cd ${BACKUP_PATH} && ls -t ingest-backup-*.tar.gz | tail -n +6 | xargs -r sudo rm -f"
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ ═══════════════════════════════════════════════════'
+            echo '✅ Deployment completed successfully!'
+            echo '✅ ═══════════════════════════════════════════════════'
+            echo "Deployed to: ${env.IP_LIST}"
+            echo "Commit: ${env.GIT_COMMIT_SHORT}"
+            echo "Branch: ${params.GIT_BRANCH}"
+
+            // Send notification (optional - configure your notification system)
+            // emailext subject: "✅ Ingestion Deployment Success - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            //          body: "Deployment completed successfully to: ${env.IP_LIST}",
+            //          to: "team@dstreambolt.com"
+        }
+
+        failure {
+            echo '❌ ═══════════════════════════════════════════════════'
+            echo '❌ Deployment failed!'
+            echo '❌ ═══════════════════════════════════════════════════'
+            echo 'Check the logs above for details.'
+            echo 'Backups are available at: ${BACKUP_PATH}'
+
+            // Send failure notification
+            // emailext subject: "❌ Ingestion Deployment Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            //          body: "Deployment failed. Check Jenkins console output.",
+            //          to: "team@dstreambolt.com"
+        }
+
+        always {
+            // Archive deployment package
+            archiveArtifacts artifacts: "ingestion-${env.GIT_COMMIT_SHORT}.tar.gz",
+                            fingerprint: true,
+                            allowEmptyArchive: true
+
+            // Cleanup workspace
+            cleanWs()
+        }
+    }
+}
+
