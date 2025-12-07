@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DStreamBolt - Real-Time Data Streaming Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 1200px;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .status-bar {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .status-badge {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            padding: 40px;
+        }
+
+        .service-card {
+            background: #fff;
+            border: 2px solid #e0e0e0;
+            border-radius: 15px;
+            padding: 30px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            border-color: #667eea;
+        }
+
+        .service-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+
+        .service-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .service-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .service-description {
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .service-url {
+            display: block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .service-url:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .api-section {
+            background: #f8f9fa;
+            padding: 40px;
+            margin: 20px;
+            border-radius: 15px;
+        }
+
+        .api-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .api-endpoint {
+            background: #fff;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+
+        .api-endpoint code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            display: block;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            margin-top: 10px;
+        }
+
+        .method-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .method-post {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .method-get {
+            background: #2196F3;
+            color: white;
+        }
+
+        .footer {
+            background: #2d2d2d;
+            color: white;
+            text-align: center;
+            padding: 30px;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: white;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 DStreamBolt</h1>
+            <p>Real-Time Data Streaming & Processing Platform</p>
+        </div>
+
+        <div class="status-bar">
+            <span class="status-badge">✓ All Systems Operational</span>
+        </div>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number">4</div>
+                <div class="stat-label">Services Running</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">99.9%</div>
+                <div class="stat-label">Uptime</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">24/7</div>
+                <div class="stat-label">Availability</div>
+            </div>
+        </div>
+
+        <div class="services-grid">
+            <div class="service-card">
+                <div class="service-icon">📥</div>
+                <div class="service-title">Ingestion API</div>
+                <div class="service-description">
+                    High-performance REST API for ingesting gzipped log bundles.
+                    Supports mTLS authentication and writes metrics to MySQL.
+                </div>
+                <a href="/ingest" class="service-url">Access API →</a>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon">🔧</div>
+                <div class="service-title">Jenkins CI/CD</div>
+                <div class="service-description">
+                    Continuous integration and deployment pipeline for automated
+                    builds, tests, and deployments.
+                </div>
+                <a href="/jenkins" class="service-url">Open Jenkins →</a>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon">📊</div>
+                <div class="service-title">Grafana Monitoring</div>
+                <div class="service-description">
+                    Real-time monitoring dashboards with metrics from MySQL.
+                    Track ingestion rates, errors, and system performance.
+                </div>
+                <a href="/grafana" class="service-url">View Dashboards →</a>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon">🎛️</div>
+                <div class="service-title">Kafka Manager</div>
+                <div class="service-description">
+                    Web-based tool for managing Kafka topics, monitoring consumer
+                    lag, and cluster health.
+                </div>
+                <a href="/kafkamgr" class="service-url">Manage Kafka →</a>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon">⚡</div>
+                <div class="service-title">Spark UI</div>
+                <div class="service-description">
+                    Apache Spark cluster interface for job monitoring, worker
+                    management, and execution history.
+                </div>
+                <a href="/spark" class="service-url">View Spark →</a>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon">❤️</div>
+                <div class="service-title">Health Check</div>
+                <div class="service-description">
+                    System health endpoint providing real-time status of all
+                    services and dependencies.
+                </div>
+                <a href="/health" class="service-url">Check Health →</a>
+            </div>
+        </div>
+
+        <div class="api-section">
+            <h2>📚 API Documentation</h2>
+
+            <div class="api-endpoint">
+                <h3>
+                    <span class="method-badge method-post">POST</span>
+                    Ingest Log Bundle
+                </h3>
+                <p><strong>Endpoint:</strong> <code>/ingest</code></p>
+                <p><strong>Description:</strong> Submit gzipped JSON log bundles for processing</p>
+                <code>curl -X POST https://YOUR-ALB-DNS/ingest \
+  -H "Content-Type: application/gzip" \
+  -H "Content-Encoding: gzip" \
+  --data-binary @logs.gz</code>
+            </div>
+
+            <div class="api-endpoint">
+                <h3>
+                    <span class="method-badge method-get">GET</span>
+                    Health Check
+                </h3>
+                <p><strong>Endpoint:</strong> <code>/health</code></p>
+                <p><strong>Description:</strong> Check service health and dependencies</p>
+                <code>curl https://YOUR-ALB-DNS/health</code>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>DStreamBolt Platform</strong> | Production Infrastructure</p>
+            <p style="margin-top: 10px; opacity: 0.7;">
+                Powered by AWS • Terraform • Apache Kafka • Apache Spark
+            </p>
+            <p style="margin-top: 10px;">
+                <a href="https://github.com/your-repo" target="_blank">Documentation</a> |
+                <a href="#" onclick="alert('Contact: admin@dstreambolt.com')">Support</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh status every 30 seconds
+        setInterval(function() {
+            fetch('/health')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'healthy') {
+                        document.querySelector('.status-badge').innerHTML = '✓ All Systems Operational';
+                        document.querySelector('.status-badge').style.background = '#4CAF50';
+                    }
+                })
+                .catch(error => {
+                    document.querySelector('.status-badge').innerHTML = '⚠ Check System Status';
+                    document.querySelector('.status-badge').style.background = '#ff9800';
+                });
+        }, 30000);
+    </script>
+</body>
+</html>
+
