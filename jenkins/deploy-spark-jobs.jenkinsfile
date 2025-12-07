@@ -39,12 +39,12 @@ pipeline {
         )
         string(
             name: 'SPARK_DRIVER_MEMORY',
-            defaultValue: '512m',
+            defaultValue: '1g',
             description: 'Spark driver memory'
         )
         string(
             name: 'SPARK_EXECUTOR_MEMORY',
-            defaultValue: '512m',
+            defaultValue: '1g',
             description: 'Spark executor memory'
         )
         booleanParam(

@@ -32,8 +32,8 @@ spark.master                     spark://${PRIVATE_IP}:7077
 spark.eventLog.enabled           true
 spark.eventLog.dir               file:///var/log/spark-events
 spark.history.fs.logDirectory    file:///var/log/spark-events
-spark.executor.memory            512m
-spark.driver.memory              512m
+spark.executor.memory            1g
+spark.driver.memory              1g
 EOF
 
 cat > /opt/spark/conf/spark-env.sh << EOF
@@ -43,8 +43,8 @@ export SPARK_MASTER_PORT=7077
 export SPARK_MASTER_WEBUI_PORT=8080
 export SPARK_WORKER_WEBUI_PORT=8081
 export SPARK_HISTORY_OPTS="-Dspark.history.ui.port=18080"
-export SPARK_WORKER_MEMORY=512m
-export SPARK_WORKER_CORES=1
+export SPARK_WORKER_MEMORY=1g
+export SPARK_WORKER_CORES=2
 EOF
 
 chmod +x /opt/spark/conf/spark-env.sh

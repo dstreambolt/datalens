@@ -227,6 +227,33 @@ resource "aws_security_group" "compute" {
     cidr_blocks = ["10.0.0.0/16"]
   }
 
+  # Allow ICMP (ping) from within VPC
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "Allow ping within VPC"
+  }
+
+  # Allow all TCP traffic from within VPC
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "Allow all TCP within VPC"
+  }
+
+  # Allow all UDP traffic from within VPC
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "udp"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "Allow all UDP within VPC"
+  }
+
   ingress {
     from_port = 0
     to_port   = 0
@@ -265,9 +292,10 @@ resource "aws_security_group" "devops" {
 
   ingress {
     from_port   = 8080
-    to_port     = 8080
+    to_port     = 8081
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Jenkins and AKHQ"
   }
 
   ingress {
@@ -275,6 +303,7 @@ resource "aws_security_group" "devops" {
     to_port     = 3000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Grafana"
   }
 
   ingress {
@@ -289,6 +318,33 @@ resource "aws_security_group" "devops" {
     to_port     = 3306
     protocol    = "tcp"
     cidr_blocks = ["10.0.0.0/16"]
+  }
+
+  # Allow ICMP (ping) from within VPC
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "Allow ping within VPC"
+  }
+
+  # Allow all TCP traffic from within VPC
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "Allow all TCP within VPC"
+  }
+
+  # Allow all UDP traffic from within VPC
+  ingress {
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "udp"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "Allow all UDP within VPC"
   }
 
   egress {

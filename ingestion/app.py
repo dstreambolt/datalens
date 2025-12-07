@@ -23,19 +23,38 @@ MYSQL_DB = os.getenv('MYSQL_DB', 'dstreambolt_metrics')
 KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'localhost:9092')
 KAFKA_TOPIC = os.getenv('KAFKA_TOPIC', 'dstreambolt-logs')
 
-# Initialize Kafka producer
-try:
-    producer = KafkaProducer(
-        bootstrap_servers=[KAFKA_BROKER],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        retries=3,
-        acks='all'
-    )
-    kafka_connected = True
-    print(f"✅ Connected to Kafka broker: {KAFKA_BROKER}")
-except Exception as e:
-    print(f"❌ Kafka connection failed: {e}")
-    kafka_connected = False
+# Kafka producer (lazy initialization)
+producer = None
+kafka_connected = False
+kafka_init_attempted = False
+
+def get_kafka_producer():
+    """Get or initialize Kafka producer (lazy loading)"""
+    global producer, kafka_connected, kafka_init_attempted
+
+    if kafka_init_attempted:
+        return producer
+
+    kafka_init_attempted = True
+
+    try:
+        print(f"🔗 Connecting to Kafka broker: {KAFKA_BROKER}")
+        producer = KafkaProducer(
+            bootstrap_servers=[KAFKA_BROKER],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            retries=3,
+            acks='all',
+            request_timeout_ms=5000,
+            max_block_ms=5000,
+            api_version_auto_timeout_ms=3000
+        )
+        kafka_connected = True
+        print(f"✅ Connected to Kafka broker: {KAFKA_BROKER}")
+        return producer
+    except Exception as e:
+        print(f"❌ Kafka connection failed: {e}")
+        kafka_connected = False
+        return None
 
 
 def get_db_connection():
@@ -138,6 +157,10 @@ def update_bundle_status(request_id, status):
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
+    # Try to connect to Kafka if not already connected
+    if not kafka_connected:
+        get_kafka_producer()
+
     return jsonify({
         'status': 'healthy',
         'service': 'ingestion-api',
@@ -187,13 +210,22 @@ def ingest():
             update_bundle_status(request_id, 'failed')
             return jsonify({'error': error_msg}), 400
 
-        # Send to Kafka
+        # Send to Kafka (initialize producer if needed)
+        kafka_producer = get_kafka_producer()
+
+        if kafka_producer is None:
+            error_msg = "Kafka producer not available"
+            processing_time = int((time.time() - start_time) * 1000)
+            log_metric(request_id, bundle_size, uncompressed_size, 'kafka_unavailable', processing_time, KAFKA_TOPIC, error_msg)
+            update_bundle_status(request_id, 'kafka_unavailable')
+            return jsonify({'error': error_msg}), 503
+
         try:
             for log_entry in logs:
                 log_entry['request_id'] = request_id
                 log_entry['ingestion_timestamp'] = datetime.utcnow().isoformat()
-                producer.send(KAFKA_TOPIC, value=log_entry)
-            producer.flush()
+                kafka_producer.send(KAFKA_TOPIC, value=log_entry)
+            kafka_producer.flush()
         except Exception as e:
             error_msg = f"Kafka send failed: {str(e)}"
             processing_time = int((time.time() - start_time) * 1000)

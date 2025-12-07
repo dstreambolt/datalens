@@ -44,7 +44,7 @@ echo "Installing Jenkins on port 8081..."
 
 # Add Jenkins repository
 wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | apt-key add -
-sh -c 'echo deb https://pkg.jenkins.io/debian-stable binary/ > /etc/apt/services.list.d/jenkins.list'
+sh -c 'echo deb https://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
 
 # Install Java 17 (required for Jenkins)
 apt-get update

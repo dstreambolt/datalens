@@ -36,7 +36,7 @@ pipeline {
 
     environment {
         REPO_URL = 'https://github.com/dstreambolt/dstream_cloud.git'
-        SERVICE_NAME = 'ingest-api'
+        SERVICE_NAME = 'dstreambolt-ingest'
         DEPLOY_PATH = '/opt/dstreambolt/agent'
         BACKUP_PATH = '/opt/dstreambolt/backups'
     }

@@ -1,14 +1,68 @@
 #!/bin/bash
 set -e
 
-# DStreamBolt Ingestion Agent (dstreambolt-agent) Setup
+# DStreamBolt Ingestion Service (dstreambolt-ingest) Setup
 # Lightweight Python Flask server with mTLS, Kafka producer, MySQL metrics
 
 echo "=========================================="
-echo "🚀 DStreamBolt Ingestion Agent Setup"
+echo "🚀 DStreamBolt Ingestion Service Setup"
 echo "=========================================="
 
+# Cleanup old dstreambolt-agent service if exists
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Checking for old dstreambolt-agent service..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if systemctl list-units --all | grep -q "dstreambolt-agent.service"; then
+    echo "⚠️  Found old dstreambolt-agent service, removing..."
+
+    # Stop the old service
+    systemctl stop dstreambolt-agent 2>/dev/null || true
+    systemctl disable dstreambolt-agent 2>/dev/null || true
+
+    # Remove service file
+    rm -f /etc/systemd/system/dstreambolt-agent.service
+
+    # Remove old nginx config
+    rm -f /etc/nginx/sites-available/dstreambolt-agent
+    rm -f /etc/nginx/sites-enabled/dstreambolt-agent
+
+    # Reload systemd
+    systemctl daemon-reload
+
+    echo "✅ Old dstreambolt-agent service removed"
+else
+    echo "✅ No old service found, proceeding with fresh installation"
+fi
+
+# Cleanup and prepare for fresh installation
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Preparing for fresh installation..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Stop existing dstreambolt-ingest service if running
+if systemctl is-active --quiet dstreambolt-ingest 2>/dev/null; then
+    echo "Stopping existing dstreambolt-ingest service..."
+    systemctl stop dstreambolt-ingest
+fi
+
+# Backup existing installation if it exists
+if [ -d "/opt/dstreambolt/agent" ]; then
+    echo "Backing up existing installation..."
+    BACKUP_DIR="/opt/dstreambolt/backups/agent-backup-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p /opt/dstreambolt/backups
+    cp -r /opt/dstreambolt/agent "$BACKUP_DIR" 2>/dev/null || true
+    echo "✅ Backup created at: $BACKUP_DIR"
+
+    # Clean up old installation
+    rm -rf /opt/dstreambolt/agent
+    echo "✅ Old installation removed"
+fi
+
 # Update system
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Updating system packages..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 apt-get update
 apt-get upgrade -y
 
@@ -259,9 +313,9 @@ if __name__ == '__main__':
 PYEOF
 
 # Create systemd service
-cat > /etc/systemd/system/dstreambolt-agent.service << 'EOF'
+cat > /etc/systemd/system/dstreambolt-ingest.service << 'EOF'
 [Unit]
-Description=DStreamBolt Ingestion Agent
+Description=DStreamBolt Ingestion Service
 After=network.target
 
 [Service]
@@ -278,7 +332,7 @@ WantedBy=multi-user.target
 EOF
 
 # Configure Nginx as reverse proxy
-cat > /etc/nginx/sites-available/dstreambolt-agent << 'EOF'
+cat > /etc/nginx/sites-available/dstreambolt-ingest << 'EOF'
 server {
     listen 80 default_server;
     server_name _;
@@ -300,15 +354,72 @@ server {
 }
 EOF
 
-ln -sf /etc/nginx/sites-available/dstreambolt-agent /etc/nginx/sites-enabled/default
-nginx -t && systemctl restart nginx
+ln -sf /etc/nginx/sites-available/dstreambolt-ingest /etc/nginx/sites-enabled/default
+
+# Test nginx configuration
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Testing Nginx configuration..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if nginx -t; then
+    echo "✅ Nginx configuration is valid"
+    systemctl restart nginx
+else
+    echo "❌ Nginx configuration has errors"
+    exit 1
+fi
 
 # Start the service
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Starting DStreamBolt Ingestion Service..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 systemctl daemon-reload
-systemctl enable dstreambolt-agent
-systemctl start dstreambolt-agent
+systemctl enable dstreambolt-ingest
+systemctl start dstreambolt-ingest
 
-echo "✅ DStreamBolt Ingestion Agent setup complete!"
+# Wait for service to start
+sleep 5
+
+# Verify service is running
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Verifying installation..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if systemctl is-active --quiet dstreambolt-ingest; then
+    echo "✅ dstreambolt-ingest service is running"
+else
+    echo "❌ dstreambolt-ingest service failed to start"
+    echo "Checking logs..."
+    journalctl -u dstreambolt-ingest -n 20 --no-pager
+    exit 1
+fi
+
+# Test health endpoint
+HEALTH_CHECK=$(curl -s http://localhost:5000/health 2>/dev/null || echo "failed")
+if [[ $HEALTH_CHECK == *"healthy"* ]]; then
+    echo "✅ Health endpoint is responding"
+else
+    echo "⚠️  Health endpoint not responding yet (service may still be initializing)"
+fi
+
+# Display summary
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ DStreamBolt Ingestion Service Setup Complete!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Service Details:"
+echo "  Name: dstreambolt-ingest"
+echo "  Port: 5000 (internal), 80 (nginx)"
+echo "  Status: $(systemctl is-active dstreambolt-ingest)"
+echo ""
+echo "Endpoints:"
+echo "  Health: http://localhost/health"
+echo "  Ingest: http://localhost/ingest (POST)"
+echo ""
 echo "Service status:"
-systemctl status dstreambolt-agent --no-pager
+systemctl status dstreambolt-ingest --no-pager | head -15
+echo ""
+echo "To view logs:"
+echo "  journalctl -u dstreambolt-ingest -f"
+echo ""
 
