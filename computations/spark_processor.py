@@ -61,10 +61,35 @@ def process_batch(spark, kafka_broker, topic="dstreambolt-logs", output_path=Non
     # Add processing timestamp
     logs_df = logs_df.withColumn("processing_timestamp", current_timestamp())
 
-    print(f"✅ Read {logs_df.count()} log entries")
+    total_count = logs_df.count()
+    print(f"✅ Read {total_count} log entries")
+
+    # Print all consumed logs
+    print("\n" + "=" * 80)
+    print("📋 ALL CONSUMED LOGS FROM KAFKA:")
+    print("=" * 80)
+    logs_df.show(total_count, truncate=False)
+
+    print("\n" + "=" * 80)
+    print("📄 DETAILED LOG RECORDS:")
+    print("=" * 80)
+    for idx, row in enumerate(logs_df.collect(), 1):
+        print(f"\n--- Log #{idx} ---")
+        print(f"  Request ID: {row.request_id}")
+        print(f"  Timestamp: {row.timestamp}")
+        print(f"  IP: {row.ip}")
+        print(f"  Method: {row.method}")
+        print(f"  Endpoint: {row.endpoint}")
+        print(f"  Status: {row.status_code}")
+        print(f"  Response Size: {row.response_size} bytes")
+        print(f"  User Agent: {row.user_agent}")
+        print(f"  Ingestion Time: {row.ingestion_timestamp}")
+        print(f"  Processing Time: {row.processing_timestamp}")
 
     # Aggregations
-    print("\n📈 Request Statistics:")
+    print("\n" + "=" * 80)
+    print("📈 Request Statistics:")
+    print("=" * 80)
     logs_df.groupBy("status_code").count().orderBy("count", ascending=False).show()
 
     print("\n🔝 Top Endpoints:")
@@ -110,6 +135,18 @@ def process_streaming(spark, kafka_broker, topic="dstreambolt-logs",
     # Add processing timestamp
     logs_stream = logs_stream.withColumn("processing_timestamp", current_timestamp())
 
+    # Write individual logs to console first
+    raw_logs_query = logs_stream \
+        .writeStream \
+        .outputMode("append") \
+        .format("console") \
+        .option("truncate", "false") \
+        .option("checkpointLocation", f"{checkpoint_dir}/raw_logs") \
+        .queryName("RawLogStream") \
+        .start()
+
+    print("✅ Raw log stream started")
+
     # Windowed aggregations
     windowed_stats = logs_stream \
         .withWatermark("kafka_timestamp", "1 minute") \
@@ -122,17 +159,21 @@ def process_streaming(spark, kafka_broker, topic="dstreambolt-logs",
             avg("response_size").alias("avg_response_size")
         )
 
-    # Write to console
-    query = windowed_stats \
+    # Write aggregations to console
+    agg_query = windowed_stats \
         .writeStream \
         .outputMode("update") \
         .format("console") \
         .option("truncate", "false") \
-        .option("checkpointLocation", checkpoint_dir) \
+        .option("checkpointLocation", f"{checkpoint_dir}/aggregations") \
+        .queryName("AggregationStream") \
         .start()
 
-    print("✅ Streaming query started. Press Ctrl+C to stop.")
-    query.awaitTermination()
+    print("✅ Aggregation stream started")
+    print("✅ Streaming queries started. Press Ctrl+C to stop.")
+
+    # Wait for both queries
+    spark.streams.awaitAnyTermination()
 
 
 def write_to_mysql(df, mysql_config):
