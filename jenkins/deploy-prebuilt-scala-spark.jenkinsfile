@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'SPARK_MASTER_IPS', defaultValue: '10.0.1.123', description: 'Comma-separated Spark master IPs')
-        string(name: 'GIT_BRANCH', defaultValue: 'release/v1.0.1', description: 'Git branch to build')
+        string(name: 'SPARK_MASTER_IPS', defaultValue: '13.127.201.0', description: 'Comma-separated Spark master IPs')
+        string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to deploy')
         string(name: 'REMOTE_USER', defaultValue: 'ubuntu', description: 'SSH username')
         string(name: 'KAFKA_BROKER', defaultValue: '10.0.10.101:9092', description: 'Kafka broker')
         choice(name: 'PROCESSING_MODE', choices: ['batch', 'streaming'], description: 'Processing mode')
@@ -11,7 +11,6 @@ pipeline {
         string(name: 'SPARK_EXECUTOR_MEMORY', defaultValue: '512m', description: 'Executor memory')
         string(name: 'SPARK_DRIVER_PORT', defaultValue: '39499', description: 'Driver port')
         booleanParam(name: 'AUTO_START', defaultValue: true, description: 'Start job after deployment')
-        booleanParam(name: 'CLEAN_BUILD', defaultValue: false, description: 'Clean build from scratch')
     }
 
     environment {
@@ -23,13 +22,7 @@ pipeline {
         SPARK_HOME = '/opt/spark'
         DEPLOY_PATH = '/opt/dstreambolt/computations'
         SPARK_LOGS = '/opt/spark/logs'
-
-        // Build paths (on Jenkins node)
-        WORKSPACE_COMPUTATIONS = "${WORKSPACE}/computations"
-        // Optimized for t3.small (2GB RAM)
-        SBT_OPTS = '-Xmx768m -Xss2m -XX:+UseG1GC -XX:MaxGCPauseMillis=200'
     }
-
 
     stages {
 
@@ -37,12 +30,11 @@ pipeline {
             steps {
                 script {
                     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                    echo "🎯 SCALA SPARK JOB BUILD & DEPLOY"
+                    echo "🎯 SCALA SPARK JAR DEPLOY (Pre-built)"
                     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                     echo "Branch: ${params.GIT_BRANCH}"
                     echo "Targets: ${params.SPARK_MASTER_IPS}"
                     echo "Mode: ${params.PROCESSING_MODE}"
-                    echo "Kafka: ${params.KAFKA_BROKER}"
                     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
                     if (!params.SPARK_MASTER_IPS) {
@@ -73,70 +65,38 @@ pipeline {
             }
         }
 
-        stage('Check SBT') {
-            steps {
-                script {
-                    echo "🔍 Checking for SBT..."
-                    def sbtExists = sh(script: "command -v sbt", returnStatus: true) == 0
-
-                    if (!sbtExists) {
-                        error("""
-❌ SBT not found on Jenkins node!
-
-Please install SBT manually on the Jenkins server:
-
-For Ubuntu/Debian:
-  sudo apt-get update
-  sudo apt-get install -y apt-transport-https curl
-  echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | sudo tee /etc/apt/sources.list.d/sbt.list
-  curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823" | sudo apt-key add
-  sudo apt-get update
-  sudo apt-get install -y sbt
-
-For macOS (on Jenkins node):
-  brew install sbt
-
-Then retry this job.
-""")
-                    }
-
-                    sh "sbt --version"
-                    echo "✅ SBT is available"
-                }
-            }
-        }
-
-        stage('Build Scala JAR') {
+        stage('Find Pre-built JAR') {
             steps {
                 dir('computations') {
                     script {
-                        echo "🔨 Building Scala Spark processor..."
+                        echo "🔍 Looking for pre-built JAR..."
 
-                        if (params.CLEAN_BUILD) {
-                            echo "🧹 Clean build requested..."
-                            sh "sbt clean"
-                        }
-
-                        echo "📦 Compiling and packaging JAR..."
-                        sh """
-                            export SBT_OPTS="${env.SBT_OPTS}"
-                            sbt assembly
-                        """
-
-                        // Verify JAR was created
+                        // Look for JAR in target directory (should be committed or uploaded)
                         def jarFile = sh(
-                            script: "ls -t target/scala-2.12/dstreambolt-processor-*.jar | head -1",
+                            script: "find . -name 'dstreambolt-processor-*.jar' -type f | head -1",
                             returnStdout: true
                         ).trim()
 
                         if (!jarFile) {
-                            error("❌ JAR file not found after build!")
+                            error("""
+❌ No pre-built JAR found!
+
+Please build the JAR locally and commit it:
+  cd computations
+  sbt assembly
+  git add target/scala-2.12/dstreambolt-processor-*.jar
+  git commit -m "Add pre-built JAR"
+  git push
+
+Or use the local build script:
+  ./build_and_upload.sh
+""")
                         }
 
                         env.JAR_FILE = jarFile
                         env.JAR_NAME = sh(script: "basename ${jarFile}", returnStdout: true).trim()
 
-                        echo "✅ Built: ${env.JAR_NAME}"
+                        echo "✅ Found JAR: ${env.JAR_NAME}"
                         sh "ls -lh ${env.JAR_FILE}"
                     }
                 }
@@ -149,7 +109,6 @@ Then retry this job.
                     script {
                         echo "📦 Creating deployment package..."
 
-                        // Create deployment info
                         writeFile file: 'DEPLOY_INFO.txt', text: """
 Deployment Information
 ======================
@@ -158,12 +117,11 @@ Build: ${BUILD_NUMBER}
 Commit: ${env.GIT_COMMIT}
 Branch: ${params.GIT_BRANCH}
 JAR: ${env.JAR_NAME}
-Built: ${new Date()}
+Deployed: ${new Date()}
 Processing Mode: ${params.PROCESSING_MODE}
 Kafka Broker: ${params.KAFKA_BROKER}
 """
 
-                        // Create submission script
                         writeFile file: 'submit_job.sh', text: '''#!/bin/bash
 set -e
 
@@ -175,7 +133,6 @@ DRIVER_MEM="$4"
 EXECUTOR_MEM="$5"
 DRIVER_PORT="$6"
 
-# Get private IP
 PRIVATE_IP=$(hostname -I | awk '{print $1}')
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -186,8 +143,6 @@ echo "Kafka: $KAFKA_BROKER"
 echo "Mode: $MODE"
 echo "Driver Memory: $DRIVER_MEM"
 echo "Executor Memory: $EXECUTOR_MEM"
-echo "Driver Port: $DRIVER_PORT"
-echo "Private IP: $PRIVATE_IP"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 JAR_FILE=$(ls -t *.jar 2>/dev/null | head -1)
@@ -213,8 +168,6 @@ $SPARK_HOME/bin/spark-submit \\
     --conf spark.streaming.stopGracefullyOnShutdown=true \\
     --conf spark.ui.enabled=true \\
     --conf spark.ui.port=4040 \\
-    --conf spark.network.timeout=800s \\
-    --conf spark.executor.heartbeatInterval=60s \\
     "$JAR_FILE" \\
     --spark-master "$MASTER_URL" \\
     --kafka-broker "$KAFKA_BROKER" \\
@@ -223,7 +176,6 @@ $SPARK_HOME/bin/spark-submit \\
 
                         sh "chmod +x submit_job.sh"
 
-                        // Create package
                         sh """
                             tar -czf ../scala-spark-job-${env.GIT_COMMIT}.tar.gz \\
                                 ${env.JAR_NAME} \\
@@ -246,23 +198,18 @@ $SPARK_HOME/bin/spark-submit \\
                         echo "⏹️  Stopping jobs on ${ip}..."
 
                         withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CREDENTIAL_ID, keyFileVariable: 'SSH_KEY')]) {
-                            writeFile file: 'stop_spark_jobs.sh', text: '''#!/bin/bash
-PIDS=$(pgrep -f "com.dstreambolt.processor.SparkProcessor" 2>/dev/null || true)
-
-if [ -z "$PIDS" ]; then
-    echo "✅ No running Scala Spark jobs found"
-else
-    echo "Found PIDs: $PIDS"
-    kill -TERM $PIDS 2>/dev/null || true
-    sleep 3
-    kill -9 $(pgrep -f "com.dstreambolt.processor.SparkProcessor" 2>/dev/null || true) 2>/dev/null || true
-    echo "✅ Stopped existing jobs"
-fi
-'''
-
                             sh """
-                                scp -i \${SSH_KEY} -o StrictHostKeyChecking=no stop_spark_jobs.sh ${params.REMOTE_USER}@${ip}:/tmp/
-                                ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} 'bash /tmp/stop_spark_jobs.sh' || echo "⚠️  Warning: Could not stop jobs on ${ip}"
+                                ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} '
+                                    PIDS=\$(pgrep -f "com.dstreambolt.processor.SparkProcessor" 2>/dev/null || true)
+                                    if [ ! -z "\$PIDS" ]; then
+                                        echo "Stopping PIDs: \$PIDS"
+                                        kill -TERM \$PIDS 2>/dev/null || true
+                                        sleep 3
+                                        kill -9 \$(pgrep -f "com.dstreambolt.processor.SparkProcessor" 2>/dev/null || true) 2>/dev/null || true
+                                    else
+                                        echo "No running jobs found"
+                                    fi
+                                ' || echo "⚠️  Warning: Could not stop jobs on ${ip}"
                             """
                         }
                     }
@@ -283,30 +230,21 @@ fi
 
                                 withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CREDENTIAL_ID, keyFileVariable: 'SSH_KEY')]) {
                                     sh """
-                                        # Transfer package
                                         scp -i \${SSH_KEY} -o StrictHostKeyChecking=no \\
                                             scala-spark-job-${env.GIT_COMMIT}.tar.gz \\
                                             ${params.REMOTE_USER}@${ip}:/tmp/
                                     """
 
-                                    writeFile file: 'deploy_scala.sh', text: """#!/bin/bash
-set -e
-
-# Clean old deployment
-rm -rf ${DEPLOY_PATH}/*
-
-# Extract new deployment
-cd ${DEPLOY_PATH}
-tar -xzf /tmp/scala-spark-job-${env.GIT_COMMIT}.tar.gz
-
-echo "✅ Deployed successfully"
-ls -lh ${DEPLOY_PATH}/
-cat ${DEPLOY_PATH}/DEPLOY_INFO.txt
-"""
-
                                     sh """
-                                        scp -i \${SSH_KEY} -o StrictHostKeyChecking=no deploy_scala.sh ${params.REMOTE_USER}@${ip}:/tmp/
-                                        ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} 'bash /tmp/deploy_scala.sh'
+                                        ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} '
+                                            set -e
+                                            rm -rf ${DEPLOY_PATH}/*
+                                            cd ${DEPLOY_PATH}
+                                            tar -xzf /tmp/scala-spark-job-${env.GIT_COMMIT}.tar.gz
+                                            echo "✅ Deployed successfully"
+                                            ls -lh ${DEPLOY_PATH}/
+                                            cat ${DEPLOY_PATH}/DEPLOY_INFO.txt
+                                        '
                                     """
                                 }
                             }
@@ -330,52 +268,38 @@ cat ${DEPLOY_PATH}/DEPLOY_INFO.txt
                         echo "🚀 Starting job on ${ip}..."
 
                         withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CREDENTIAL_ID, keyFileVariable: 'SSH_KEY')]) {
-                            writeFile file: 'start_spark_job.sh', text: """#!/bin/bash
-set -e
-
-# Get private IP for Spark master URL
-PRIVATE_IP=\$(hostname -I | awk '{print \$1}')
-MASTER_URL="spark://\$PRIVATE_IP:7077"
-
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Master URL: \$MASTER_URL"
-echo "Private IP: \$PRIVATE_IP"
-echo "Driver Port: ${params.SPARK_DRIVER_PORT}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Start job in background
-cd ${DEPLOY_PATH}
-
-nohup ./submit_job.sh \\
-    "\$MASTER_URL" \\
-    "${params.KAFKA_BROKER}" \\
-    "${params.PROCESSING_MODE}" \\
-    "${params.SPARK_DRIVER_MEMORY}" \\
-    "${params.SPARK_EXECUTOR_MEMORY}" \\
-    "${params.SPARK_DRIVER_PORT}" \\
-    > ${SPARK_LOGS}/scala-spark-job.log 2>&1 &
-
-PID=\$!
-echo \$PID > spark_job.pid
-
-echo "✅ Job started (PID: \$PID)"
-echo "📊 Spark Master UI: http://\$PRIVATE_IP:8080"
-echo "📊 Application UI: http://\$PRIVATE_IP:4040"
-
-# Wait and verify
-sleep 3
-if ps -p \$PID > /dev/null; then
-    echo "✅ Job is running successfully"
-else
-    echo "❌ Job failed to start"
-    tail -50 ${SPARK_LOGS}/scala-spark-job.log
-    exit 1
-fi
-"""
-
                             sh """
-                                scp -i \${SSH_KEY} -o StrictHostKeyChecking=no start_spark_job.sh ${params.REMOTE_USER}@${ip}:/tmp/
-                                ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} 'bash /tmp/start_spark_job.sh'
+                                ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} '
+                                    PRIVATE_IP=\$(hostname -I | awk "{print \\\$1}")
+                                    MASTER_URL="spark://\$PRIVATE_IP:7077"
+
+                                    echo "Master URL: \$MASTER_URL"
+
+                                    cd ${DEPLOY_PATH}
+
+                                    nohup ./submit_job.sh \\
+                                        "\$MASTER_URL" \\
+                                        "${params.KAFKA_BROKER}" \\
+                                        "${params.PROCESSING_MODE}" \\
+                                        "${params.SPARK_DRIVER_MEMORY}" \\
+                                        "${params.SPARK_EXECUTOR_MEMORY}" \\
+                                        "${params.SPARK_DRIVER_PORT}" \\
+                                        > ${SPARK_LOGS}/scala-spark-job.log 2>&1 &
+
+                                    PID=\$!
+                                    echo \$PID > spark_job.pid
+
+                                    echo "✅ Job started (PID: \$PID)"
+
+                                    sleep 3
+                                    if ps -p \$PID > /dev/null; then
+                                        echo "✅ Job is running"
+                                    else
+                                        echo "❌ Job failed to start"
+                                        tail -50 ${SPARK_LOGS}/scala-spark-job.log
+                                        exit 1
+                                    fi
+                                '
                             """
                         }
                     }
@@ -394,39 +318,31 @@ fi
 
                     ips.each { ip ->
                         withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CREDENTIAL_ID, keyFileVariable: 'SSH_KEY')]) {
-                            writeFile file: 'verify_scala.sh', text: """#!/bin/bash
-PRIVATE_IP=\$(hostname -I | awk '{print \$1}')
-
-echo ""
-echo "📊 Status on ${ip}:"
-echo "─────────────────────────────────────────"
-
-if [ -f ${DEPLOY_PATH}/spark_job.pid ]; then
-    PID=\$(cat ${DEPLOY_PATH}/spark_job.pid)
-    if ps -p \$PID > /dev/null 2>&1; then
-        echo "✅ Job running (PID: \$PID)"
-        echo "📊 Spark Master UI: http://\$PRIVATE_IP:8080"
-        echo "📊 Application UI: http://\$PRIVATE_IP:4040"
-        echo "📊 Driver Port: ${params.SPARK_DRIVER_PORT}"
-    else
-        echo "❌ Job not running"
-    fi
-else
-    echo "⚠️  No PID file found"
-fi
-
-echo ""
-echo "📁 Deployed files:"
-ls -lh ${DEPLOY_PATH}/*.jar 2>/dev/null || echo "No JAR files found"
-
-echo ""
-echo "📋 Recent logs (last 30 lines):"
-tail -30 ${SPARK_LOGS}/scala-spark-job.log 2>/dev/null || echo "No logs yet"
-"""
-
                             sh """
-                                scp -i \${SSH_KEY} -o StrictHostKeyChecking=no verify_scala.sh ${params.REMOTE_USER}@${ip}:/tmp/
-                                ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} 'bash /tmp/verify_scala.sh'
+                                ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} '
+                                    PRIVATE_IP=\$(hostname -I | awk "{print \\\$1}")
+
+                                    echo ""
+                                    echo "📊 Status on ${ip}:"
+                                    echo "─────────────────────────────────────────"
+
+                                    if [ -f ${DEPLOY_PATH}/spark_job.pid ]; then
+                                        PID=\$(cat ${DEPLOY_PATH}/spark_job.pid)
+                                        if ps -p \$PID > /dev/null 2>&1; then
+                                            echo "✅ Job running (PID: \$PID)"
+                                            echo "📊 Spark Master UI: http://\$PRIVATE_IP:8080"
+                                            echo "📊 Application UI: http://\$PRIVATE_IP:4040"
+                                        else
+                                            echo "❌ Job not running"
+                                        fi
+                                    else
+                                        echo "⚠️  No PID file"
+                                    fi
+
+                                    echo ""
+                                    echo "📄 Recent logs (last 20 lines):"
+                                    tail -20 ${SPARK_LOGS}/scala-spark-job.log 2>/dev/null || echo "No logs yet"
+                                '
                             """
                         }
                     }
@@ -451,14 +367,10 @@ tail -30 ${SPARK_LOGS}/scala-spark-job.log 2>/dev/null || echo "No logs yet"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "❌ DEPLOYMENT FAILED"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "Check logs above for details"
         }
 
         always {
-            // Archive the built JAR
             archiveArtifacts artifacts: "scala-spark-job-${env.GIT_COMMIT}.tar.gz", allowEmptyArchive: true
-
-            // Clean workspace
             cleanWs()
         }
     }
