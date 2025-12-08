@@ -1,0 +1,359 @@
+package com.dstreambolt.processor
+
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.streaming.Trigger
+import java.util.Properties
+
+/**
+ * DStreamBolt Spark Processor
+ * Real-time and batch processing of log data from Kafka
+ */
+object SparkProcessor {
+
+  // Define log schema
+  val logSchema: StructType = StructType(Array(
+    StructField("timestamp", StringType, nullable = true),
+    StructField("ip", StringType, nullable = true),
+    StructField("method", StringType, nullable = true),
+    StructField("endpoint", StringType, nullable = true),
+    StructField("status_code", IntegerType, nullable = true),
+    StructField("response_size", IntegerType, nullable = true),
+    StructField("user_agent", StringType, nullable = true),
+    StructField("request_id", StringType, nullable = true),
+    StructField("ingestion_timestamp", StringType, nullable = true)
+  ))
+
+  /**
+   * Create Spark session
+   */
+  def createSparkSession(appName: String = "DStreamBolt-Processor", master: Option[String] = None): SparkSession = {
+    val builder = SparkSession.builder()
+      .appName(appName)
+      .config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true")
+      .config("spark.streaming.stopGracefullyOnShutdown", "true")
+
+    master.foreach(m => builder.master(m))
+
+    builder.getOrCreate()
+  }
+
+  /**
+   * Batch processing of Kafka messages
+   */
+  def processBatch(
+    spark: SparkSession,
+    kafkaBroker: String,
+    topic: String = "dstreambolt-logs",
+    outputPath: Option[String] = None
+  ): DataFrame = {
+    import spark.implicits._
+
+    println(s"📊 Starting batch processing from Kafka topic: $topic")
+
+    // Read from Kafka
+    val df = spark.read
+      .format("kafka")
+      .option("kafka.bootstrap.servers", kafkaBroker)
+      .option("subscribe", topic)
+      .option("startingOffsets", "earliest")
+      .load()
+
+    // Parse JSON
+    val logsDF = df
+      .select(from_json(col("value").cast("string"), logSchema).as("data"))
+      .select("data.*")
+      .withColumn("processing_timestamp", current_timestamp())
+
+    val totalCount = logsDF.count()
+    println(s"✅ Read $totalCount log entries from Kafka")
+
+    // Aggregations
+    println("\n" + "=" * 80)
+    println("📈 REQUEST STATISTICS BY STATUS CODE:")
+    println("=" * 80)
+    logsDF.groupBy("status_code")
+      .count()
+      .orderBy(desc("count"))
+      .show(false)
+
+    println("\n" + "=" * 80)
+    println("🔝 TOP 10 ENDPOINTS:")
+    println("=" * 80)
+    logsDF.groupBy("endpoint")
+      .count()
+      .orderBy(desc("count"))
+      .limit(10)
+      .show(false)
+
+    println("\n" + "=" * 80)
+    println("⚠️  ERROR ANALYSIS (Status >= 400):")
+    println("=" * 80)
+    val errorDF = logsDF.filter(col("status_code") >= 400)
+    val errorCount = errorDF.count()
+
+    if (errorCount > 0) {
+      errorDF.groupBy("status_code", "endpoint")
+        .count()
+        .orderBy(desc("count"))
+        .limit(10)
+        .show(false)
+    } else {
+      println("✅ No errors found!")
+    }
+
+    println("\n" + "=" * 80)
+    println(s"📊 SUMMARY: Processed $totalCount logs, $errorCount errors")
+    println("=" * 80)
+
+    // Save results if output path provided
+    outputPath.foreach { path =>
+      println(s"\n💾 Saving results to: $path")
+      logsDF.write.mode("overwrite").parquet(path)
+    }
+
+    logsDF
+  }
+
+  /**
+   * Streaming processing of Kafka messages
+   */
+  def processStreaming(
+    spark: SparkSession,
+    kafkaBroker: String,
+    topic: String = "dstreambolt-logs",
+    checkpointDir: String = "/tmp/spark-checkpoints",
+    windowDuration: String = "30 seconds"
+  ): Unit = {
+    import spark.implicits._
+
+    println(s"🔄 Starting streaming processing from Kafka topic: $topic")
+    println(s"📍 Checkpoint directory: $checkpointDir")
+    println(s"⏱️  Window duration: $windowDuration")
+
+    // Read stream from Kafka
+    val streamDF = spark.readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", kafkaBroker)
+      .option("subscribe", topic)
+      .option("startingOffsets", "latest")
+      .load()
+
+    // Parse JSON
+    val logsStream = streamDF
+      .select(
+        from_json(col("value").cast("string"), logSchema).as("data"),
+        col("timestamp").as("kafka_timestamp")
+      )
+      .select("data.*", "kafka_timestamp")
+      .withColumn("processing_timestamp", current_timestamp())
+
+    // Windowed aggregations
+    val windowedStats = logsStream
+      .withWatermark("kafka_timestamp", "1 minute")
+      .groupBy(
+        window(col("kafka_timestamp"), windowDuration),
+        col("status_code")
+      )
+      .agg(
+        count("*").as("request_count"),
+        avg("response_size").as("avg_response_size")
+      )
+
+    // Write aggregations to console
+    val query = windowedStats.writeStream
+      .outputMode("update")
+      .format("console")
+      .option("truncate", "false")
+      .option("checkpointLocation", checkpointDir)
+      .start()
+
+    println("✅ Streaming query started. Press Ctrl+C to stop.")
+    query.awaitTermination()
+  }
+
+  /**
+   * Write DataFrame to MySQL
+   */
+  def writeToMySQL(df: DataFrame, mysqlConfig: Map[String, String]): Unit = {
+    val host = mysqlConfig("host")
+    val database = mysqlConfig("database")
+    val table = mysqlConfig.getOrElse("table", "spark_results")
+    val user = mysqlConfig("user")
+    val password = mysqlConfig("password")
+
+    println(s"💾 Writing to MySQL: $host/$database")
+
+    val url = s"jdbc:mysql://$host:3306/$database"
+
+    df.write
+      .format("jdbc")
+      .option("url", url)
+      .option("dbtable", table)
+      .option("user", user)
+      .option("password", password)
+      .option("driver", "com.mysql.cj.jdbc.Driver")
+      .mode("append")
+      .save()
+
+    println("✅ Data written to MySQL successfully")
+  }
+
+  /**
+   * Parse command line arguments
+   */
+  case class Config(
+    sparkMaster: String = "",
+    appName: String = "DStreamBolt-Processor",
+    kafkaBroker: String = "",
+    topic: String = "dstreambolt-logs",
+    mode: String = "batch",
+    windowDuration: String = "30 seconds",
+    outputPath: Option[String] = None,
+    checkpointDir: String = "/tmp/spark-checkpoints",
+    mysqlHost: Option[String] = None,
+    mysqlUser: Option[String] = None,
+    mysqlPassword: Option[String] = None,
+    mysqlDatabase: String = "dstreambolt",
+    mysqlTable: String = "spark_results"
+  )
+
+  def parseArgs(args: Array[String]): Config = {
+    val parser = new scopt.OptionParser[Config]("SparkProcessor") {
+      head("DStreamBolt Spark Processor", "1.0")
+
+      opt[String]("spark-master")
+        .required()
+        .action((x, c) => c.copy(sparkMaster = x))
+        .text("Spark master URL (e.g., spark://host:7077)")
+
+      opt[String]("app-name")
+        .optional()
+        .action((x, c) => c.copy(appName = x))
+        .text("Spark application name")
+
+      opt[String]("kafka-broker")
+        .required()
+        .action((x, c) => c.copy(kafkaBroker = x))
+        .text("Kafka broker address (e.g., host:9092)")
+
+      opt[String]("topic")
+        .optional()
+        .action((x, c) => c.copy(topic = x))
+        .text("Kafka topic to consume")
+
+      opt[String]("mode")
+        .optional()
+        .action((x, c) => c.copy(mode = x))
+        .validate(x => if (Seq("batch", "streaming").contains(x)) success else failure("mode must be 'batch' or 'streaming'"))
+        .text("Processing mode (batch or streaming)")
+
+      opt[String]("window-duration")
+        .optional()
+        .action((x, c) => c.copy(windowDuration = x))
+        .text("Window duration for streaming aggregations")
+
+      opt[String]("output-path")
+        .optional()
+        .action((x, c) => c.copy(outputPath = Some(x)))
+        .text("Output path for batch processing results")
+
+      opt[String]("checkpoint-dir")
+        .optional()
+        .action((x, c) => c.copy(checkpointDir = x))
+        .text("Checkpoint directory for streaming")
+
+      opt[String]("mysql-host")
+        .optional()
+        .action((x, c) => c.copy(mysqlHost = Some(x)))
+        .text("MySQL host")
+
+      opt[String]("mysql-user")
+        .optional()
+        .action((x, c) => c.copy(mysqlUser = Some(x)))
+        .text("MySQL user")
+
+      opt[String]("mysql-password")
+        .optional()
+        .action((x, c) => c.copy(mysqlPassword = Some(x)))
+        .text("MySQL password")
+
+      opt[String]("mysql-database")
+        .optional()
+        .action((x, c) => c.copy(mysqlDatabase = x))
+        .text("MySQL database")
+
+      opt[String]("mysql-table")
+        .optional()
+        .action((x, c) => c.copy(mysqlTable = x))
+        .text("MySQL table")
+    }
+
+    parser.parse(args, Config()) match {
+      case Some(config) => config
+      case None => sys.exit(1)
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val config = parseArgs(args)
+
+    println("=" * 60)
+    println("🚀 DStreamBolt Spark Processor")
+    println("=" * 60)
+    println(s"Mode: ${config.mode}")
+    println(s"Kafka Broker: ${config.kafkaBroker}")
+    println(s"Topic: ${config.topic}")
+    println(s"Spark Master: ${config.sparkMaster}")
+    println("=" * 60)
+
+    // Create Spark session
+    val spark = createSparkSession(config.appName, Some(config.sparkMaster))
+    spark.sparkContext.setLogLevel("WARN")
+
+    try {
+      config.mode match {
+        case "batch" =>
+          val df = processBatch(
+            spark,
+            config.kafkaBroker,
+            config.topic,
+            config.outputPath
+          )
+
+          // Write to MySQL if configured
+          if (config.mysqlHost.isDefined && config.mysqlUser.isDefined && config.mysqlPassword.isDefined) {
+            val mysqlConfig = Map(
+              "host" -> config.mysqlHost.get,
+              "user" -> config.mysqlUser.get,
+              "password" -> config.mysqlPassword.get,
+              "database" -> config.mysqlDatabase,
+              "table" -> config.mysqlTable
+            )
+            writeToMySQL(df, mysqlConfig)
+          }
+
+        case "streaming" =>
+          processStreaming(
+            spark,
+            config.kafkaBroker,
+            config.topic,
+            config.checkpointDir,
+            config.windowDuration
+          )
+      }
+    } catch {
+      case _: InterruptedException =>
+        println("\n⏹️  Stopping Spark processor...")
+      case e: Exception =>
+        println(s"\n❌ Error: ${e.getMessage}")
+        e.printStackTrace()
+        sys.exit(1)
+    } finally {
+      spark.stop()
+      println("✅ Spark session stopped")
+    }
+  }
+}
+

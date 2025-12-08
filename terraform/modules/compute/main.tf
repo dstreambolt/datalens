@@ -8,7 +8,7 @@ variable "iam_instance_profile" {}
 
 resource "aws_instance" "compute" {
   ami                         = var.ami_id
-  instance_type               = "t3.small"
+  instance_type               = "t3.small"  # Free tier: Use t2.micro or t3.micro for lower cost, t3.small for better performance
   key_name                    = var.key_name
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [var.security_group_id]

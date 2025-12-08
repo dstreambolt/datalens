@@ -17,6 +17,10 @@ resource "aws_instance" "devops" {
   user_data                   = file("${path.root}/user_data/devops.sh")
 
   tags = { Name = "${var.project_name}-devops" }
+
+  lifecycle {
+    ignore_changes = [user_data, user_data_replace_on_change]
+  }
 }
 
 output "public_ip" {

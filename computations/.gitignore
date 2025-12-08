@@ -1,0 +1,32 @@
+# SBT
+target/
+project/target/
+project/project/
+
+# Scala
+*.class
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.metals/
+.bloop/
+
+# Python (keep for reference)
+__pycache__/
+*.pyc
+venv/
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Temporary
+*.swp
+*.swo
+*~
+.DS_Store
+
