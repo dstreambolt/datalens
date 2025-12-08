@@ -62,42 +62,32 @@ def process_batch(spark, kafka_broker, topic="dstreambolt-logs", output_path=Non
     logs_df = logs_df.withColumn("processing_timestamp", current_timestamp())
 
     total_count = logs_df.count()
-    print(f"✅ Read {total_count} log entries")
-
-    # Print all consumed logs
-    print("\n" + "=" * 80)
-    print("📋 ALL CONSUMED LOGS FROM KAFKA:")
-    print("=" * 80)
-    logs_df.show(total_count, truncate=False)
-
-    print("\n" + "=" * 80)
-    print("📄 DETAILED LOG RECORDS:")
-    print("=" * 80)
-    for idx, row in enumerate(logs_df.collect(), 1):
-        print(f"\n--- Log #{idx} ---")
-        print(f"  Request ID: {row.request_id}")
-        print(f"  Timestamp: {row.timestamp}")
-        print(f"  IP: {row.ip}")
-        print(f"  Method: {row.method}")
-        print(f"  Endpoint: {row.endpoint}")
-        print(f"  Status: {row.status_code}")
-        print(f"  Response Size: {row.response_size} bytes")
-        print(f"  User Agent: {row.user_agent}")
-        print(f"  Ingestion Time: {row.ingestion_timestamp}")
-        print(f"  Processing Time: {row.processing_timestamp}")
+    print(f"✅ Read {total_count} log entries from Kafka")
 
     # Aggregations
     print("\n" + "=" * 80)
-    print("📈 Request Statistics:")
+    print("📈 REQUEST STATISTICS BY STATUS CODE:")
     print("=" * 80)
-    logs_df.groupBy("status_code").count().orderBy("count", ascending=False).show()
+    logs_df.groupBy("status_code").count().orderBy("count", ascending=False).show(truncate=False)
 
-    print("\n🔝 Top Endpoints:")
-    logs_df.groupBy("endpoint").count().orderBy("count", ascending=False).limit(10).show()
+    print("\n" + "=" * 80)
+    print("🔝 TOP 10 ENDPOINTS:")
+    print("=" * 80)
+    logs_df.groupBy("endpoint").count().orderBy("count", ascending=False).limit(10).show(truncate=False)
 
-    print("\n⚠️  Error Analysis:")
+    print("\n" + "=" * 80)
+    print("⚠️  ERROR ANALYSIS (Status >= 400):")
+    print("=" * 80)
     error_df = logs_df.filter(col("status_code") >= 400)
-    error_df.groupBy("status_code", "endpoint").count().orderBy("count", ascending=False).limit(10).show()
+    error_count = error_df.count()
+    if error_count > 0:
+        error_df.groupBy("status_code", "endpoint").count().orderBy("count", ascending=False).limit(10).show(truncate=False)
+    else:
+        print("✅ No errors found!")
+
+    print("\n" + "=" * 80)
+    print(f"📊 SUMMARY: Processed {total_count} logs, {error_count} errors")
+    print("=" * 80)
 
     # Save results if output path provided
     if output_path:
@@ -135,17 +125,6 @@ def process_streaming(spark, kafka_broker, topic="dstreambolt-logs",
     # Add processing timestamp
     logs_stream = logs_stream.withColumn("processing_timestamp", current_timestamp())
 
-    # Write individual logs to console first
-    raw_logs_query = logs_stream \
-        .writeStream \
-        .outputMode("append") \
-        .format("console") \
-        .option("truncate", "false") \
-        .option("checkpointLocation", f"{checkpoint_dir}/raw_logs") \
-        .queryName("RawLogStream") \
-        .start()
-
-    print("✅ Raw log stream started")
 
     # Windowed aggregations
     windowed_stats = logs_stream \
@@ -160,20 +139,16 @@ def process_streaming(spark, kafka_broker, topic="dstreambolt-logs",
         )
 
     # Write aggregations to console
-    agg_query = windowed_stats \
+    query = windowed_stats \
         .writeStream \
         .outputMode("update") \
         .format("console") \
         .option("truncate", "false") \
-        .option("checkpointLocation", f"{checkpoint_dir}/aggregations") \
-        .queryName("AggregationStream") \
+        .option("checkpointLocation", checkpoint_dir) \
         .start()
 
-    print("✅ Aggregation stream started")
-    print("✅ Streaming queries started. Press Ctrl+C to stop.")
-
-    # Wait for both queries
-    spark.streams.awaitAnyTermination()
+    print("✅ Streaming query started. Press Ctrl+C to stop.")
+    query.awaitTermination()
 
 
 def write_to_mysql(df, mysql_config):
