@@ -12,15 +12,17 @@ import java.util.Properties
  */
 object SparkProcessor {
 
-  // Define log schema
+  // Define log schema (matches ingestion service format)
   val logSchema: StructType = StructType(Array(
     StructField("timestamp", StringType, nullable = true),
     StructField("ip", StringType, nullable = true),
     StructField("method", StringType, nullable = true),
     StructField("endpoint", StringType, nullable = true),
-    StructField("status_code", IntegerType, nullable = true),
-    StructField("response_size", IntegerType, nullable = true),
+    StructField("status", IntegerType, nullable = true),          // Changed from status_code
+    StructField("size", IntegerType, nullable = true),            // Changed from response_size
+    StructField("referer", StringType, nullable = true),          // Added referer
     StructField("user_agent", StringType, nullable = true),
+    StructField("response_time", DoubleType, nullable = true),    // Added response_time
     StructField("request_id", StringType, nullable = true),
     StructField("ingestion_timestamp", StringType, nullable = true)
   ))
@@ -73,7 +75,7 @@ object SparkProcessor {
     println("\n" + "=" * 80)
     println("📈 REQUEST STATISTICS BY STATUS CODE:")
     println("=" * 80)
-    logsDF.groupBy("status_code")
+    logsDF.groupBy("status")
       .count()
       .orderBy(desc("count"))
       .show(false)
@@ -88,13 +90,25 @@ object SparkProcessor {
       .show(false)
 
     println("\n" + "=" * 80)
+    println("🔝 TOP 10 SLOWEST ENDPOINTS (Avg Response Time):")
+    println("=" * 80)
+    logsDF.groupBy("endpoint")
+      .agg(
+        avg("response_time").as("avg_response_time"),
+        count("*").as("request_count")
+      )
+      .orderBy(desc("avg_response_time"))
+      .limit(10)
+      .show(false)
+
+    println("\n" + "=" * 80)
     println("⚠️  ERROR ANALYSIS (Status >= 400):")
     println("=" * 80)
-    val errorDF = logsDF.filter(col("status_code") >= 400)
+    val errorDF = logsDF.filter(col("status") >= 400)
     val errorCount = errorDF.count()
 
     if (errorCount > 0) {
-      errorDF.groupBy("status_code", "endpoint")
+      errorDF.groupBy("status", "endpoint")
         .count()
         .orderBy(desc("count"))
         .limit(10)
@@ -154,11 +168,12 @@ object SparkProcessor {
       .withWatermark("kafka_timestamp", "1 minute")
       .groupBy(
         window(col("kafka_timestamp"), windowDuration),
-        col("status_code")
+        col("status")
       )
       .agg(
         count("*").as("request_count"),
-        avg("response_size").as("avg_response_size")
+        avg("size").as("avg_response_size"),
+        avg("response_time").as("avg_response_time")
       )
 
     // Write aggregations to console
