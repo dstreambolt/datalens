@@ -1,4 +1,5 @@
 # Terraform
+!computations/target/scala-2.12/dstreambolt-processor-1.0.0.jar
 *.tfstate
 *.tfstate.*
 *.tfstate.backup

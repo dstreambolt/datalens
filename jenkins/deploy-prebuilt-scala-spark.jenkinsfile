@@ -280,8 +280,10 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 cd ${env.DEPLOY_PATH}
 
-# Get MySQL password from DevOps node (if available)
-MYSQL_PASSWORD=\$(cat /opt/mysql_root_password 2>/dev/null || echo "")
+# MySQL credentials (dstreambolt user with password authentication)
+MYSQL_USER="dstreambolt"
+MYSQL_PASSWORD="DStreamBolt2025!"
+MYSQL_HOST="13.232.132.240"
 
 nohup ./submit_job.sh \\
     "\$MASTER_URL" \\
@@ -290,8 +292,8 @@ nohup ./submit_job.sh \\
     "${params.SPARK_DRIVER_MEMORY}" \\
     "${params.SPARK_EXECUTOR_MEMORY}" \\
     "${params.SPARK_DRIVER_PORT}" \\
-    "13.232.38.64" \\
-    "root" \\
+    "\$MYSQL_HOST" \\
+    "\$MYSQL_USER" \\
     "\$MYSQL_PASSWORD" \\
     > ${env.SPARK_LOGS}/scala-spark-job.log 2>&1 &
 
