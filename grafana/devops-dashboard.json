@@ -1,0 +1,283 @@
+{
+  "dashboard": {
+    "title": "DStreamBolt DevOps Dashboard",
+    "tags": ["dstreambolt", "devops", "observability", "ingestion", "kafka", "spark"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 0,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Ingestion: Requests Per Minute",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, COUNT(*) as value FROM ingestion_requests WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time ORDER BY time",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Requests",
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Ingestion: Success vs Failed",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "rawSql": "SELECT CASE WHEN http_status = 201 THEN 'Success' ELSE 'Failed' END as metric, COUNT(*) as value FROM ingestion_requests WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY metric",
+            "format": "table",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Ingestion: Processing Time (ms)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, AVG(total_processing_time_ms) as avg_time, MAX(total_processing_time_ms) as max_time FROM bundle_processing WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time ORDER BY time",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Milliseconds",
+              "drawStyle": "line",
+              "fillOpacity": 10
+            },
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Kafka: Records Written",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+        "targets": [
+          {
+            "rawSql": "SELECT SUM(records_successful) as value FROM kafka_production_metrics WHERE timestamp >= NOW() - INTERVAL 1 HOUR",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 100, "color": "yellow"},
+                {"value": 1000, "color": "green"}
+              ]
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Kafka: Records Failed",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+        "targets": [
+          {
+            "rawSql": "SELECT SUM(records_failed) as value FROM kafka_production_metrics WHERE timestamp >= NOW() - INTERVAL 1 HOUR",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 10, "color": "yellow"},
+                {"value": 100, "color": "red"}
+              ]
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Failed Bundles (Last Hour)",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "targets": [
+          {
+            "rawSql": "SELECT timestamp, request_id, failure_stage, error_type, LEFT(error_message, 100) as error FROM failed_bundles WHERE timestamp >= NOW() - INTERVAL 1 HOUR ORDER BY timestamp DESC LIMIT 10",
+            "format": "table",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Kafka: Consumer Lag by Topic",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, topic, SUM(lag) as value FROM kafka_consumer_lag WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time, topic ORDER BY time",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Lag",
+              "drawStyle": "line",
+              "fillOpacity": 10
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Kafka: Topic Metrics",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "rawSql": "SELECT topic, partition_count, replication_factor, MAX(timestamp) as last_updated FROM kafka_topic_metrics WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY topic, partition_count, replication_factor ORDER BY topic",
+            "format": "table",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Real-Time Ingestion Metrics",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+        "targets": [
+          {
+            "rawSql": "SELECT metric_name, metric_value FROM ingestion_realtime_metrics",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "blue"}
+              ]
+            }
+          }
+        },
+        "options": {
+          "orientation": "auto",
+          "textMode": "value_and_name",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 10,
+        "title": "Bundle Processing Breakdown",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "targets": [
+          {
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, AVG(decompression_time_ms) as decompression, AVG(kafka_write_time_ms) as kafka_write FROM bundle_processing WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time ORDER BY time",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Milliseconds",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "stacking": {"mode": "normal"}
+            },
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Lines Processed: Valid vs Invalid",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "targets": [
+          {
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, SUM(valid_lines) as valid, SUM(invalid_lines) as invalid FROM bundle_processing WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time ORDER BY time",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Lines",
+              "drawStyle": "bars",
+              "fillOpacity": 80
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Spark: Processing Metrics (Last Hour)",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 40},
+        "targets": [
+          {
+            "rawSql": "SELECT timestamp, job_id, processing_mode, records_read, records_processed, records_skipped, records_failed, processing_time_ms FROM spark_processing_metrics WHERE timestamp >= NOW() - INTERVAL 1 HOUR ORDER BY timestamp DESC LIMIT 20",
+            "format": "table",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Spark: Failed Records",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 48},
+        "targets": [
+          {
+            "rawSql": "SELECT timestamp, job_id, failure_stage, error_type, LEFT(error_message, 150) as error FROM spark_failed_records WHERE timestamp >= NOW() - INTERVAL 1 HOUR ORDER BY timestamp DESC LIMIT 15",
+            "format": "table",
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  }
+}
+

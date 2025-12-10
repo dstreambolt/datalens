@@ -14,7 +14,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, COUNT(*) as value FROM ingestion_requests WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time ORDER BY time",
             "format": "time_series",
             "refId": "A"
           }
@@ -43,7 +43,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, SUM(CASE WHEN status >= 400 THEN request_count ELSE 0 END) * 100.0 / SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, SUM(CASE WHEN http_status >= 400 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as value FROM ingestion_requests WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time ORDER BY time",
             "format": "time_series",
             "refId": "A"
           }
@@ -76,7 +76,7 @@
         "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
         "targets": [
           {
-            "rawSql": "SELECT status as metric, SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 15 MINUTE GROUP BY status ORDER BY value DESC",
+            "rawSql": "SELECT http_status as metric, COUNT(*) as value FROM ingestion_requests WHERE timestamp >= NOW() - INTERVAL 15 MINUTE GROUP BY http_status ORDER BY value DESC",
             "format": "table",
             "refId": "A"
           }
