@@ -182,12 +182,15 @@ output "service_endpoints" {
 }
 
 output "direct_access" {
-  description = "Direct access to instances"
+  description = "Direct EC2 access"
   value = {
-    ingest_ip  = module.ingest.public_ip
-    compute_ip = module.compute.public_ip
-    devops_ip  = module.devops.public_ip
-    kafka_ip   = module.kafka.private_ip
+    ingest_ip           = module.ingest.public_ip
+    spark_master_ip     = module.compute.master_public_ip
+    spark_executor_ip   = module.compute.executor_public_ip
+    devops_ip           = module.devops.public_ip
+    kafka_ip            = module.kafka.private_ip
+    # Backward compatibility
+    compute_ip          = module.compute.public_ip
   }
 }
 
@@ -225,9 +228,10 @@ output "summary" {
      Spark UI:       https://${module.alb.alb_dns_name}/spark
 
   💻 DIRECT ACCESS:
-     Ingest:  ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.ingest.public_ip}
-     Compute: ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.compute.public_ip}
-     DevOps:  ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.devops.public_ip}
+     Ingest:         ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.ingest.public_ip}
+     Spark Master:   ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.compute.master_public_ip}
+     Spark Executor: ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.compute.executor_public_ip}
+     DevOps:         ssh -i ~/dstreambolt-access-key.pem ubuntu@${module.devops.public_ip}
 
   🔐 CREDENTIALS:
      MySQL:   root / ${var.mysql_root_password}
