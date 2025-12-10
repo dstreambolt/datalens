@@ -226,16 +226,33 @@ object SparkProcessor {
       // Write status aggregations to MySQL
       val statusQuery = statusAggregations.writeStream
         .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
-          println(s"📊 Writing status aggregations batch $batchId to MySQL")
-          batchDF.write
-            .format("jdbc")
-            .option("url", url)
-            .option("dbtable", "status_summary")
-            .option("user", config("user"))
-            .option("password", config("password"))
-            .option("driver", "com.mysql.cj.jdbc.Driver")
-            .mode("append")
-            .save()
+          val recordCount = batchDF.count()
+
+          println("\n" + "=" * 80)
+          println(s"📊 STATUS SUMMARY - Batch $batchId")
+          println("=" * 80)
+          println(s"Records to write: $recordCount")
+
+          if (recordCount > 0) {
+            println("\nData Preview:")
+            batchDF.select("window_start", "window_end", "status", "request_count", "avg_response_time")
+              .show(20, truncate = false)
+
+            println("\nWriting to MySQL table: status_summary")
+            batchDF.write
+              .format("jdbc")
+              .option("url", url)
+              .option("dbtable", "status_summary")
+              .option("user", config("user"))
+              .option("password", config("password"))
+              .option("driver", "com.mysql.cj.jdbc.Driver")
+              .mode("append")
+              .save()
+            println("✅ Status aggregations written successfully")
+          } else {
+            println("⚠️  No data in this batch, skipping write")
+          }
+          println("=" * 80 + "\n")
         }
         .outputMode("update")
         .option("checkpointLocation", s"$checkpointDir/status")
@@ -245,16 +262,39 @@ object SparkProcessor {
       // Write endpoint aggregations to MySQL
       val endpointQuery = endpointAggregations.writeStream
         .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
-          println(s"📊 Writing endpoint aggregations batch $batchId to MySQL")
-          batchDF.write
-            .format("jdbc")
-            .option("url", url)
-            .option("dbtable", "endpoint_summary")
-            .option("user", config("user"))
-            .option("password", config("password"))
-            .option("driver", "com.mysql.cj.jdbc.Driver")
-            .mode("append")
-            .save()
+          val recordCount = batchDF.count()
+
+          println("\n" + "=" * 80)
+          println(s"📊 ENDPOINT SUMMARY - Batch $batchId")
+          println("=" * 80)
+          println(s"Records to write: $recordCount")
+
+          if (recordCount > 0) {
+            println("\nTop 10 Endpoints by Request Count:")
+            batchDF.select("window_start", "endpoint", "method", "request_count", "avg_response_time", "error_count")
+              .orderBy(col("request_count").desc)
+              .show(10, truncate = false)
+
+            println("\nTop 10 Slowest Endpoints:")
+            batchDF.select("endpoint", "method", "avg_response_time", "p95_response_time", "p99_response_time", "request_count")
+              .orderBy(col("avg_response_time").desc)
+              .show(10, truncate = false)
+
+            println(s"\nWriting to MySQL table: endpoint_summary")
+            batchDF.write
+              .format("jdbc")
+              .option("url", url)
+              .option("dbtable", "endpoint_summary")
+              .option("user", config("user"))
+              .option("password", config("password"))
+              .option("driver", "com.mysql.cj.jdbc.Driver")
+              .mode("append")
+              .save()
+            println("✅ Endpoint aggregations written successfully")
+          } else {
+            println("⚠️  No data in this batch, skipping write")
+          }
+          println("=" * 80 + "\n")
         }
         .outputMode("update")
         .option("checkpointLocation", s"$checkpointDir/endpoint")
