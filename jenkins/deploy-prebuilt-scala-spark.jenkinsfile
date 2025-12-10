@@ -119,7 +119,7 @@ MODE="$3"
 DRIVER_MEM="$4"
 EXECUTOR_MEM="$5"
 DRIVER_PORT="$6"
-MYSQL_HOST="${7:-13.232.38.64}"
+MYSQL_HOST="${7:-10.0.1.61}"  # DevOps private IP for MySQL
 MYSQL_USER="${8:-root}"
 MYSQL_PASSWORD="${9:-}"
 
@@ -154,7 +154,8 @@ SPARK_ARGS=(
     --executor-cores 1
     --total-executor-cores 2
     --class com.dstreambolt.processor.SparkProcessor
-    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.spark:spark-token-provider-kafka-0-10_2.12:3.5.0
+    --conf spark.jars.ivy=/tmp/.ivy2
     --conf spark.driver.port="$DRIVER_PORT"
     --conf spark.driver.host="$PRIVATE_IP"
     --conf spark.sql.streaming.forceDeleteTempCheckpointLocation=true
@@ -286,7 +287,7 @@ cd ${env.DEPLOY_PATH}
 # MySQL credentials (dstreambolt user with password authentication)
 MYSQL_USER="dstreambolt"
 MYSQL_PASSWORD="DStreamBolt2025!"
-MYSQL_HOST="13.232.132.240"
+MYSQL_HOST="10.0.1.61"  # DevOps private IP (was 13.232.132.240 public IP)
 
 # Start Spark job completely detached from SSH session
 nohup setsid ./submit_job.sh \\
