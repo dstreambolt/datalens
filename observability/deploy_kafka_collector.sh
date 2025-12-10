@@ -32,10 +32,19 @@ if ! command -v aws &> /dev/null; then
     exit 1
 fi
 
-if ! aws ssm start-session --help &> /dev/null; then
-    echo "❌ AWS Session Manager plugin not found."
-    echo "   Install: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-    exit 1
+# Check if Session Manager plugin is installed by testing the command exists
+if ! command -v session-manager-plugin &> /dev/null; then
+    echo "⚠️  Session Manager plugin not found in PATH."
+    echo "   Checking if aws ssm commands work..."
+    if ! aws ssm help 2>&1 | grep -q "start-session"; then
+        echo "❌ AWS Session Manager plugin not found."
+        echo "   Install: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+        exit 1
+    else
+        echo "✅ AWS SSM commands available"
+    fi
+else
+    echo "✅ Session Manager plugin found: $(which session-manager-plugin)"
 fi
 
 echo "✅ AWS CLI and SSM plugin found"
@@ -94,22 +103,20 @@ fi
 echo "✅ Directories created"
 echo ""
 
-echo "2️⃣  Copying collector script to S3 (temporary)..."
-TEMP_BUCKET="dstreambolt-temp-$(date +%s)"
-aws s3 mb s3://$TEMP_BUCKET --region $AWS_REGION 2>/dev/null || true
-aws s3 cp kafka_metrics_collector.py s3://$TEMP_BUCKET/kafka_metrics_collector.py --region $AWS_REGION
-aws s3 cp kafka-metrics-collector.service s3://$TEMP_BUCKET/kafka-metrics-collector.service --region $AWS_REGION
-echo "✅ Files uploaded to S3"
+echo "2️⃣  Encoding files for transfer..."
+# Encode files as base64 for direct transfer (no AWS CLI needed on instance)
+COLLECTOR_B64=$(base64 < kafka_metrics_collector.py)
+SERVICE_B64=$(base64 < kafka-metrics-collector.service)
+echo "✅ Files encoded"
 echo ""
 
-echo "3️⃣  Downloading files to instance..."
+echo "3️⃣  Transferring collector script to instance..."
 aws ssm send-command \
     --region $AWS_REGION \
     --instance-ids $KAFKA_INSTANCE_ID \
     --document-name "AWS-RunShellScript" \
     --parameters "commands=[
-        \"aws s3 cp s3://$TEMP_BUCKET/kafka_metrics_collector.py /opt/dstreambolt/observability/kafka_metrics_collector.py --region $AWS_REGION\",
-        \"aws s3 cp s3://$TEMP_BUCKET/kafka-metrics-collector.service /tmp/kafka-metrics-collector.service --region $AWS_REGION\",
+        \"echo '$COLLECTOR_B64' | base64 -d > /opt/dstreambolt/observability/kafka_metrics_collector.py\",
         \"chmod +x /opt/dstreambolt/observability/kafka_metrics_collector.py\",
         \"sudo chown ubuntu:ubuntu /opt/dstreambolt/observability/kafka_metrics_collector.py\"
     ]" \
@@ -127,17 +134,44 @@ STATUS=$(aws ssm get-command-invocation \
     --output text)
 
 if [ "$STATUS" != "Success" ]; then
-    echo "❌ Failed to download files. Status: $STATUS"
+    echo "❌ Failed to transfer collector script. Status: $STATUS"
+    aws ssm get-command-invocation \
+        --region $AWS_REGION \
+        --command-id $COMMAND_ID \
+        --instance-id $KAFKA_INSTANCE_ID \
+        --query "StandardErrorContent" \
+        --output text
     exit 1
 fi
-echo "✅ Files downloaded to instance"
+echo "✅ Collector script transferred"
 echo ""
 
-echo "4️⃣  Cleaning up S3 temporary files..."
-aws s3 rm s3://$TEMP_BUCKET/kafka_metrics_collector.py --region $AWS_REGION
-aws s3 rm s3://$TEMP_BUCKET/kafka-metrics-collector.service --region $AWS_REGION
-aws s3 rb s3://$TEMP_BUCKET --region $AWS_REGION 2>/dev/null || true
-echo "✅ S3 cleanup done"
+echo "4️⃣  Transferring service file to instance..."
+aws ssm send-command \
+    --region $AWS_REGION \
+    --instance-ids $KAFKA_INSTANCE_ID \
+    --document-name "AWS-RunShellScript" \
+    --parameters "commands=[
+        \"echo '$SERVICE_B64' | base64 -d > /tmp/kafka-metrics-collector.service\"
+    ]" \
+    --output text \
+    --query "Command.CommandId" > /tmp/command_id.txt
+
+COMMAND_ID=$(cat /tmp/command_id.txt)
+sleep 3
+
+STATUS=$(aws ssm get-command-invocation \
+    --region $AWS_REGION \
+    --command-id $COMMAND_ID \
+    --instance-id $KAFKA_INSTANCE_ID \
+    --query "Status" \
+    --output text)
+
+if [ "$STATUS" != "Success" ]; then
+    echo "❌ Failed to transfer service file. Status: $STATUS"
+    exit 1
+fi
+echo "✅ Service file transferred"
 echo ""
 
 echo "5️⃣  Installing Python dependencies..."
