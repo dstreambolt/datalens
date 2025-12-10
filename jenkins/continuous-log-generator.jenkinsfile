@@ -1,0 +1,189 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'INGESTION_URL',
+            defaultValue: 'https://dstreambolt-alb-841612552.ap-south-1.elb.amazonaws.com/ingest',
+            description: 'Ingestion endpoint URL'
+        )
+        string(
+            name: 'INTERVAL',
+            defaultValue: '30',
+            description: 'Interval in seconds between batches'
+        )
+        string(
+            name: 'BATCH_SIZE',
+            defaultValue: '1000',
+            description: 'Number of log lines per batch'
+        )
+        booleanParam(
+            name: 'VERIFY_SSL',
+            defaultValue: false,
+            description: 'Enable SSL certificate verification'
+        )
+    }
+
+    environment {
+        REPO_URL = 'git@github.com:dstreambolt/dstream_cloud.git'
+        GIT_BRANCH = 'release/v1.0.1'
+        GIT_SSH_CREDENTIAL = 'jenkins-github-ssh'
+    }
+
+    options {
+        // Allow only one instance to run at a time
+        disableConcurrentBuilds()
+        // Keep logs for 30 days
+        buildDiscarder(logRotator(daysToKeepStr: '30', numToKeepStr: '50'))
+        // Add timestamps to console output
+        timestamps()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                echo '📥 Checking out code from repository'
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${env.GIT_BRANCH}"]],
+                    userRemoteConfigs: [[
+                        url: env.REPO_URL,
+                        credentialsId: env.GIT_SSH_CREDENTIAL
+                    ]]
+                ])
+
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "✅ Commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage('Setup Python Environment') {
+            steps {
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                echo '🐍 Setting up Python virtual environment'
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+
+                dir('examples') {
+                    sh '''
+                        # Create virtual environment if it doesn't exist
+                        if [ ! -d "venv" ]; then
+                            python3 -m venv venv
+                        fi
+
+                        # Activate and install dependencies
+                        . venv/bin/activate
+                        pip install --upgrade pip --quiet
+                        pip install -r requirements.txt --quiet
+
+                        echo "✅ Python environment ready"
+                        echo ""
+                        echo "Installed packages:"
+                        pip list | grep -E "requests|urllib3"
+                    '''
+                }
+            }
+        }
+
+        stage('Start Continuous Log Sender') {
+            steps {
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                echo '🚀 Starting Continuous Log Generator'
+                echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+
+                script {
+                    def sslFlag = params.VERIFY_SSL ? '' : '--no-verify'
+
+                    echo """
+Configuration:
+  URL:         ${params.INGESTION_URL}
+  Interval:    ${params.INTERVAL} seconds
+  Batch Size:  ${params.BATCH_SIZE} logs
+  SSL Verify:  ${params.VERIFY_SSL}
+
+⚠️  This job will run continuously until manually stopped!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+                    dir('examples') {
+                        // Run the continuous log sender
+                        // The script will run indefinitely until the job is aborted
+                        sh """
+                            . venv/bin/activate
+
+                            echo "Starting continuous log sender..."
+                            echo "To stop this job, click the red 'X' button in Jenkins UI"
+                            echo ""
+
+                            python3 continuous-log-sender.py \\
+                                --url "${params.INGESTION_URL}" \\
+                                --interval ${params.INTERVAL} \\
+                                --batch-size ${params.BATCH_SIZE} \\
+                                ${sslFlag} \\
+                                --max-batches 0
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '✅ Log Sender Completed Successfully'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo 'This should only happen if max-batches was set.'
+        }
+
+        aborted {
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '⛔ Log Sender Stopped by User'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+
+            script {
+                // Try to show final statistics from the log
+                def logContent = currentBuild.rawBuild.getLog(100).join('\n')
+                if (logContent.contains('Final Statistics:')) {
+                    echo 'Final statistics were captured in the log above.'
+                }
+            }
+        }
+
+        failure {
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '❌ Log Sender Failed'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo 'Check the console output above for error details.'
+            echo ''
+            echo 'Common issues:'
+            echo '  • Ingestion endpoint unreachable'
+            echo '  • Network connectivity problems'
+            echo '  • Python dependencies missing'
+        }
+
+        always {
+            echo ''
+            echo '📊 Job Information:'
+            echo "  Build Number: ${env.BUILD_NUMBER}"
+            echo "  Duration: ${currentBuild.durationString}"
+            echo "  Started: ${new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')}"
+        }
+
+        cleanup {
+            echo 'Cleaning up workspace...'
+            // Keep the workspace for debugging but clean old builds
+            cleanWs(deleteDirs: false, patterns: [
+                [pattern: 'examples/venv', type: 'EXCLUDE']
+            ])
+        }
+    }
+}
+
