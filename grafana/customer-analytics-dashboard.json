@@ -14,7 +14,7 @@
         "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
         "targets": [
           {
-            "rawSql": "SELECT SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
+            "rawSql": "SELECT SUM(request_count) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
             "format": "table",
             "refId": "A"
           }
@@ -47,7 +47,7 @@
         "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
         "targets": [
           {
-            "rawSql": "SELECT (SUM(error_count) * 100.0 / SUM(request_count)) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
+            "rawSql": "SELECT (SUM(error_count) * 100.0 / SUM(request_count)) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
             "format": "table",
             "refId": "A"
           }
@@ -78,7 +78,7 @@
         "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
         "targets": [
           {
-            "rawSql": "SELECT AVG(avg_response_time) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
+            "rawSql": "SELECT AVG(avg_response_time) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
             "format": "table",
             "refId": "A"
           }
@@ -109,7 +109,7 @@
         "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
         "targets": [
           {
-            "rawSql": "SELECT SUM(unique_ips) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
+            "rawSql": "SELECT SUM(unique_ips) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR",
             "format": "table",
             "refId": "A"
           }
@@ -138,7 +138,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
+            "rawSql": "SELECT window_start as time, SUM(request_count) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
             "format": "time_series",
             "refId": "A"
           }
@@ -164,7 +164,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, (SUM(error_count) * 100.0 / SUM(request_count)) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
+            "rawSql": "SELECT window_start as time, (SUM(error_count) * 100.0 / SUM(request_count)) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
             "format": "time_series",
             "refId": "A"
           }
@@ -196,7 +196,7 @@
         "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
         "targets": [
           {
-            "rawSql": "SELECT status as metric, SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY status ORDER BY value DESC",
+            "rawSql": "SELECT status as metric, SUM(request_count) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY status ORDER BY value DESC",
             "format": "table",
             "refId": "A"
           }
@@ -214,7 +214,7 @@
         "gridPos": {"h": 8, "w": 16, "x": 8, "y": 12},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, status, SUM(request_count) as value FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start, status ORDER BY window_start",
+            "rawSql": "SELECT window_start as time, status, SUM(request_count) as value FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start, status ORDER BY window_start",
             "format": "time_series",
             "refId": "A"
           }
@@ -238,7 +238,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, AVG(avg_response_time) as 'Average', AVG(p95_response_time) as 'P95', AVG(p99_response_time) as 'P99' FROM status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
+            "rawSql": "SELECT window_start as time, AVG(avg_response_time) as 'Average', AVG(p95_response_time) as 'P95', AVG(p99_response_time) as 'P99' FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
             "format": "time_series",
             "refId": "A"
           }
@@ -263,7 +263,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
         "targets": [
           {
-            "rawSql": "SELECT endpoint, method, ROUND(AVG(avg_response_time), 3) as avg_time, ROUND(AVG(p95_response_time), 3) as p95_time, ROUND(AVG(p99_response_time), 3) as p99_time, SUM(request_count) as requests FROM endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY endpoint, method ORDER BY avg_time DESC LIMIT 10",
+            "rawSql": "SELECT endpoint, method, ROUND(AVG(avg_response_time), 3) as avg_time, ROUND(AVG(p95_response_time), 3) as p95_time, ROUND(AVG(p99_response_time), 3) as p99_time, SUM(request_count) as requests FROM dstreambolt_metrics.endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY endpoint, method ORDER BY avg_time DESC LIMIT 10",
             "format": "table",
             "refId": "A"
           }
@@ -280,7 +280,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
         "targets": [
           {
-            "rawSql": "SELECT CONCAT(method, ' ', endpoint) as metric, SUM(request_count) as value FROM endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY endpoint, method ORDER BY value DESC LIMIT 10",
+            "rawSql": "SELECT CONCAT(method, ' ', endpoint) as metric, SUM(request_count) as value FROM dstreambolt_metrics.endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY endpoint, method ORDER BY value DESC LIMIT 10",
             "format": "table",
             "refId": "A"
           }
@@ -298,7 +298,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
         "targets": [
           {
-            "rawSql": "SELECT endpoint, method, SUM(error_count) as total_errors, SUM(request_count) as total_requests, ROUND((SUM(error_count) * 100.0 / SUM(request_count)), 2) as error_rate FROM endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR AND error_count > 0 GROUP BY endpoint, method ORDER BY total_errors DESC LIMIT 10",
+            "rawSql": "SELECT endpoint, method, SUM(error_count) as total_errors, SUM(request_count) as total_requests, ROUND((SUM(error_count) * 100.0 / SUM(request_count)), 2) as error_rate FROM dstreambolt_metrics.endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR AND error_count > 0 GROUP BY endpoint, method ORDER BY total_errors DESC LIMIT 10",
             "format": "table",
             "refId": "A"
           }
@@ -315,7 +315,7 @@
         "gridPos": {"h": 8, "w": 24, "x": 0, "y": 36},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, endpoint, AVG(avg_response_time) as value FROM endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start, endpoint ORDER BY window_start LIMIT 500",
+            "rawSql": "SELECT window_start as time, endpoint, AVG(avg_response_time) as value FROM dstreambolt_metrics.endpoint_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start, endpoint ORDER BY window_start LIMIT 500",
             "format": "time_series",
             "refId": "A"
           }
@@ -338,7 +338,7 @@
         "gridPos": {"h": 10, "w": 24, "x": 0, "y": 44},
         "targets": [
           {
-            "rawSql": "SELECT window_start, status, endpoint, method, SUM(error_count) as errors, ROUND(AVG(avg_response_time), 3) as avg_time FROM endpoint_summary WHERE error_count > 0 AND window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start, status, endpoint, method ORDER BY errors DESC, window_start DESC LIMIT 50",
+            "rawSql": "SELECT window_start, endpoint, method, SUM(error_count) as errors, ROUND(AVG(avg_response_time), 3) as avg_time FROM dstreambolt_metrics.endpoint_summary WHERE error_count > 0 AND window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start, endpoint, method ORDER BY errors DESC, window_start DESC LIMIT 50",
             "format": "table",
             "refId": "A"
           }
