@@ -99,38 +99,48 @@ cd /Users/skalaise/apps/cloud/terraform/dstream_bolt/observability
 # Make script executable
 chmod +x deploy_kafka_collector.sh
 
-# Deploy to Kafka node
-./deploy_kafka_collector.sh
+# Deploy to Kafka node via AWS SSM
+./deploy_kafka_collector.sh i-0bdf20dd0b5e1cc81 ap-south-1
 
 # The script will:
 # 1. Create /opt/dstreambolt/observability on Kafka node
-# 2. Copy kafka_metrics_collector.py
+# 2. Copy kafka_metrics_collector.py via S3
 # 3. Install Python dependencies
 # 4. Set up systemd service
 # 5. Start the collector
 ```
 
-### Manual Deployment Steps
+**Prerequisites:**
+- AWS CLI installed
+- AWS Session Manager plugin installed
+- Kafka instance has SSM agent running
+- Kafka instance has proper IAM role for SSM
+
+### Manual Deployment Steps (via SSM)
 
 If you prefer manual deployment:
 
 ```bash
-# 1. SSH to Kafka node
-ssh -i ~/dstreambolt-access-key.pem ubuntu@10.0.10.101
+# 1. Connect to Kafka node via SSM
+aws ssm start-session --target i-0bdf20dd0b5e1cc81 --region ap-south-1
 
-# 2. Create directories
+# 2. Create directories (in SSM session)
 sudo mkdir -p /opt/dstreambolt/observability
 sudo mkdir -p /var/log/dstreambolt
 sudo chown -R ubuntu:ubuntu /opt/dstreambolt
 sudo chown -R ubuntu:ubuntu /var/log/dstreambolt
 
-# 3. Copy collector script (from your local machine)
-scp -i ~/dstreambolt-access-key.pem \
-  observability/kafka_metrics_collector.py \
-  ubuntu@10.0.10.101:/opt/dstreambolt/observability/
+# 3. Copy collector script via S3
+# On your local machine:
+aws s3 cp kafka_metrics_collector.py s3://your-bucket/kafka_metrics_collector.py --region ap-south-1
+aws s3 cp kafka-metrics-collector.service s3://your-bucket/kafka-metrics-collector.service --region ap-south-1
+
+# In SSM session:
+aws s3 cp s3://your-bucket/kafka_metrics_collector.py /opt/dstreambolt/observability/
+aws s3 cp s3://your-bucket/kafka-metrics-collector.service /tmp/
+chmod +x /opt/dstreambolt/observability/kafka_metrics_collector.py
 
 # 4. Install Python MySQL library
-ssh ubuntu@10.0.10.101
 pip3 install pymysql
 # OR
 sudo apt-get install -y python3-pymysql
@@ -140,12 +150,7 @@ cd /opt/dstreambolt/observability
 python3 kafka_metrics_collector.py
 # Press Ctrl+C after seeing metrics collection
 
-# 6. Install systemd service (from your local machine)
-scp -i ~/dstreambolt-access-key.pem \
-  observability/kafka-metrics-collector.service \
-  ubuntu@10.0.10.101:/tmp/
-
-ssh ubuntu@10.0.10.101
+# 6. Install systemd service
 sudo mv /tmp/kafka-metrics-collector.service /etc/systemd/system/
 sudo chmod 644 /etc/systemd/system/kafka-metrics-collector.service
 sudo systemctl daemon-reload
@@ -159,17 +164,20 @@ sudo systemctl status kafka-metrics-collector.service
 ### Verify Kafka Collector
 
 ```bash
-# Check service status
-ssh ubuntu@10.0.10.101
+# Check service status (via SSM)
+aws ssm start-session --target i-0bdf20dd0b5e1cc81 --region ap-south-1
 sudo systemctl status kafka-metrics-collector
 
-# View logs
+# View logs (in SSM session)
 tail -f /var/log/dstreambolt/kafka-metrics.log
 
 # OR use journalctl
 sudo journalctl -u kafka-metrics-collector -f
 
-# Check data in MySQL
+# Exit SSM session
+exit
+
+# Check data in MySQL (from your local machine or DevOps node)
 mysql -h 10.0.1.61 -u dstreambolt -p'DStreamBolt2025!' dstreambolt_metrics
 
 SELECT * FROM kafka_topic_metrics ORDER BY timestamp DESC LIMIT 5;

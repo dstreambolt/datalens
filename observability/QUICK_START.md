@@ -9,11 +9,12 @@ cd /Users/skalaise/apps/cloud/terraform/dstream_bolt
 # 1. Create tables
 cd observability && ./setup_observability.sh
 
-# 2. Deploy Kafka collector
-./deploy_kafka_collector.sh
+# 2. Deploy Kafka collector (via AWS SSM)
+./deploy_kafka_collector.sh i-0bdf20dd0b5e1cc81 ap-south-1
 
 # 3. Deploy optimized ingestion
 cd ../ingestion
+# Use your existing deployment method or:
 scp app_optimized.py ubuntu@13.201.43.125:/opt/dstreambolt-ingest/app.py
 ssh ubuntu@13.201.43.125 "sudo systemctl restart dstreambolt-ingest"
 ```
@@ -53,16 +54,20 @@ SELECT * FROM kafka_broker_metrics ORDER BY timestamp DESC LIMIT 5;
 
 ## 🔧 Service Management
 
-### Kafka Collector (runs on 10.0.10.101)
+### Kafka Collector (runs on i-0bdf20dd0b5e1cc81)
 ```bash
+# Connect via SSM
+aws ssm start-session --target i-0bdf20dd0b5e1cc81 --region ap-south-1
+
+# Then inside SSM session:
 # Status
-ssh ubuntu@10.0.10.101 "sudo systemctl status kafka-metrics-collector"
+sudo systemctl status kafka-metrics-collector
 
 # Logs
-ssh ubuntu@10.0.10.101 "tail -f /var/log/dstreambolt/kafka-metrics.log"
+tail -f /var/log/dstreambolt/kafka-metrics.log
 
 # Restart
-ssh ubuntu@10.0.10.101 "sudo systemctl restart kafka-metrics-collector"
+sudo systemctl restart kafka-metrics-collector
 ```
 
 ### Ingestion Service (runs on 13.201.43.125)
