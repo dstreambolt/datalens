@@ -102,7 +102,7 @@ class IngestClient:
     def send_logs(self, log_lines):
         """Compress and send logs to ingestion endpoint"""
         try:
-            # Create gzipped JSON payload
+            # Create raw log data (Apache Combined Log Format)
             log_data = "\n".join(log_lines)
 
             # Gzip the data
@@ -114,7 +114,8 @@ class IngestClient:
             # Send to ingestion endpoint
             headers = {
                 'Content-Type': 'application/gzip',
-                'Content-Encoding': 'gzip'
+                'Content-Encoding': 'gzip',
+                'User-Agent': 'DStreamBolt-LogGenerator/1.0'
             }
 
             start_time = time.time()
@@ -127,6 +128,14 @@ class IngestClient:
             )
             elapsed = time.time() - start_time
 
+            # Parse response if JSON
+            response_text = response.text[:500] if response.text else ''
+            try:
+                response_json = response.json()
+                response_text = json.dumps(response_json, indent=2)[:500]
+            except:
+                pass
+
             return {
                 'success': response.status_code == 201,
                 'status_code': response.status_code,
@@ -134,13 +143,14 @@ class IngestClient:
                 'compressed_size': len(compressed_data),
                 'original_size': len(log_data),
                 'compression_ratio': len(log_data) / len(compressed_data) if compressed_data else 0,
-                'response': response.text[:200] if response.text else ''
+                'response': response_text
             }
 
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'error_type': type(e).__name__
             }
 
 
