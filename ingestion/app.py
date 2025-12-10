@@ -1,26 +1,28 @@
 """
-DStreamBolt Ingestion Service
+DStreamBolt Ingestion Service - Optimized
 Lightweight Flask application for receiving gzipped log bundles
+Note: Run observability/setup_observability.sh to create required tables before starting
 """
 import gzip
 import json
 import time
 import os
+import uuid
+import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
 from kafka import KafkaProducer
 import pymysql
-from functools import wraps
 
 app = Flask(__name__)
 
 # Configuration from environment variables
-MYSQL_HOST = os.getenv('MYSQL_HOST', 'localhost')
-MYSQL_USER = os.getenv('MYSQL_USER', 'root')
-MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
+MYSQL_HOST = os.getenv('MYSQL_HOST', '10.0.1.61')
+MYSQL_USER = os.getenv('MYSQL_USER', 'dstreambolt')
+MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', 'DStreamBolt2025!')
 MYSQL_DB = os.getenv('MYSQL_DB', 'dstreambolt_metrics')
 
-KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'localhost:9092')
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', '10.0.10.101:9092')
 KAFKA_TOPIC = os.getenv('KAFKA_TOPIC', 'dstreambolt-logs')
 
 # Kafka producer (lazy initialization)
@@ -72,195 +74,277 @@ def get_db_connection():
         return None
 
 
-def init_db():
-    """Initialize database schema"""
-    time.sleep(30)  # Wait for MySQL to be ready
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
+# ============================================================================
+# METRIC LOGGING FUNCTIONS
+# ============================================================================
 
-        # Create database if not exists
-        cursor.execute(f"""
-            CREATE DATABASE IF NOT EXISTS {MYSQL_DB}
-        """)
-        cursor.execute(f"USE {MYSQL_DB}")
-
-        # Create ingestion metrics table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ingestion_metrics (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                request_id VARCHAR(255),
-                bundle_size_bytes INT,
-                uncompressed_size_bytes INT,
-                status VARCHAR(50),
-                processing_time_ms INT,
-                kafka_topic VARCHAR(255),
-                error_message TEXT,
-                INDEX(request_id),
-                INDEX(timestamp),
-                INDEX(status)
-            )
-        """)
-
-        # Create bundle status table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS bundle_status (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                request_id VARCHAR(255) UNIQUE,
-                status VARCHAR(50),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX(request_id),
-                INDEX(status)
-            )
-        """)
-
-        conn.close()
-        print("✅ Database initialized successfully")
-    else:
-        print("⚠️  Warning: Could not initialize database")
-
-
-def log_metric(request_id, bundle_size, uncompressed_size, status, processing_time, kafka_topic='', error=''):
-    """Log metrics to MySQL"""
+def log_request(request_id, source_ip, user_agent, content_type, bundle_size, http_status, stage='received'):
+    """Log incoming HTTP request"""
     try:
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO ingestion_metrics
-                (request_id, bundle_size_bytes, uncompressed_size_bytes, status, processing_time_ms, kafka_topic, error_message)
+                INSERT INTO ingestion_requests
+                (request_id, source_ip, user_agent, content_type, bundle_size_bytes, http_status, processing_stage)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (request_id, bundle_size, uncompressed_size, status, processing_time, kafka_topic, error))
+            """, (request_id, source_ip, user_agent[:500], content_type, bundle_size, http_status, stage))
+
+            cursor.execute("UPDATE ingestion_realtime_metrics SET metric_value = metric_value + 1 WHERE metric_name = 'total_requests'")
             conn.close()
     except Exception as e:
-        print(f"⚠️  Failed to log metric: {e}")
+        print(f"⚠️  Failed to log request: {e}")
 
 
-def update_bundle_status(request_id, status):
-    """Update bundle processing status"""
+def log_bundle_processing(request_id, bundle_size, uncompressed_size, decomp_time, total_lines,
+                          valid_lines, invalid_lines, kafka_time, total_time, status):
+    """Log detailed bundle processing metrics"""
     try:
         conn = get_db_connection()
         if conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO bundle_status (request_id, status)
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE status=%s, updated_at=CURRENT_TIMESTAMP
-            """, (request_id, status, status))
+                INSERT INTO bundle_processing
+                (request_id, bundle_size_bytes, uncompressed_size_bytes, decompression_time_ms,
+                 total_lines, valid_lines, invalid_lines, kafka_write_time_ms, total_processing_time_ms, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (request_id, bundle_size, uncompressed_size, decomp_time, total_lines,
+                  valid_lines, invalid_lines, kafka_time, total_time, status))
+
+            if status == 'success':
+                cursor.execute("UPDATE ingestion_realtime_metrics SET metric_value = metric_value + 1 WHERE metric_name = 'successful_bundles'")
+                cursor.execute("UPDATE ingestion_realtime_metrics SET metric_value = metric_value + %s WHERE metric_name = 'total_records_processed'", (valid_lines,))
+            else:
+                cursor.execute("UPDATE ingestion_realtime_metrics SET metric_value = metric_value + 1 WHERE metric_name = 'failed_bundles'")
+
             conn.close()
     except Exception as e:
-        print(f"⚠️  Failed to update bundle status: {e}")
+        print(f"⚠️  Failed to log bundle processing: {e}")
 
+
+def log_kafka_production(request_id, topic, attempted, successful, failed, write_time, avg_size, errors=''):
+    """Log Kafka production metrics"""
+    try:
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO kafka_production_metrics
+                (request_id, topic, records_attempted, records_successful, records_failed, 
+                 write_time_ms, avg_record_size_bytes, kafka_errors)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (request_id, topic, attempted, successful, failed, write_time, avg_size, errors[:1000] if errors else ''))
+
+            cursor.execute("UPDATE ingestion_realtime_metrics SET metric_value = metric_value + %s WHERE metric_name = 'total_kafka_writes'", (successful,))
+            if failed > 0:
+                cursor.execute("UPDATE ingestion_realtime_metrics SET metric_value = metric_value + %s WHERE metric_name = 'total_kafka_failures'", (failed,))
+
+            conn.close()
+    except Exception as e:
+        print(f"⚠️  Failed to log Kafka production: {e}")
+
+
+def log_failed_bundle(request_id, failure_stage, error_type, error_message, bundle_size,
+                      source_ip, bundle_sample='', stack_trace=''):
+    """Log failed bundle with full context"""
+    try:
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO failed_bundles
+                (request_id, failure_stage, error_type, error_message, bundle_size_bytes, 
+                 source_ip, bundle_data_sample, stack_trace)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (request_id, failure_stage, error_type, error_message[:500], bundle_size,
+                  source_ip, bundle_sample[:1000] if bundle_sample else '', stack_trace[:2000] if stack_trace else ''))
+            conn.close()
+    except Exception as e:
+        print(f"⚠️  Failed to log failed bundle: {e}")
+
+
+# ============================================================================
+# HTTP ENDPOINTS
+# ============================================================================
 
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
-    # Try to connect to Kafka if not already connected
-    if not kafka_connected:
-        get_kafka_producer()
-
-    return jsonify({
+    status = {
+        'service': 'ingest-api',
         'status': 'healthy',
-        'service': 'ingestion-api',
+        'timestamp': time.time(),
         'version': '1.0.0',
-        'kafka': 'connected' if kafka_connected else 'disconnected',
-        'timestamp': time.time()
-    }), 200
+        'kafka': 'connected' if kafka_connected else 'disconnected'
+    }
+    return jsonify(status), 200
 
 
 @app.route('/ingest', methods=['POST'])
 def ingest():
     """
-    Ingestion endpoint
-    Accepts gzipped log bundles, decompresses, and sends to Kafka
+    Ingest gzipped log bundles and send to Kafka
+    Captures comprehensive metrics at each stage
     """
     start_time = time.time()
-    request_id = request.headers.get('X-Request-ID', f"req_{int(time.time() * 1000)}")
+    request_id = str(uuid.uuid4())
+
+    # Get request metadata
+    source_ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent', 'unknown')
+    content_type = request.headers.get('Content-Type', 'unknown')
+    bundle_data = request.get_data()
+    bundle_size = len(bundle_data)
+
+    # Log incoming request
+    log_request(request_id, source_ip, user_agent, content_type, bundle_size, 0, 'received')
+
+    # Validate request
+    if not bundle_data:
+        log_request(request_id, source_ip, user_agent, content_type, 0, 400, 'validation_failed')
+        log_failed_bundle(request_id, 'validation', 'EmptyBundle', 'No data received', 0, source_ip)
+        return jsonify({'error': 'No data received'}), 400
 
     try:
-        # Get compressed data
-        compressed_data = request.data
-        bundle_size = len(compressed_data)
-
-        if bundle_size == 0:
-            return jsonify({'error': 'No data received'}), 400
-
-        # Decompress
+        # Stage 1: Decompression
+        decomp_start = time.time()
         try:
-            uncompressed_data = gzip.decompress(compressed_data)
+            uncompressed_data = gzip.decompress(bundle_data)
             uncompressed_size = len(uncompressed_data)
+            decomp_time = int((time.time() - decomp_start) * 1000)
         except Exception as e:
-            error_msg = f"Failed to decompress: {str(e)}"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, 0, 'failed', processing_time, error=error_msg)
-            update_bundle_status(request_id, 'failed')
+            error_msg = f"Decompression failed: {e}"
+            log_request(request_id, source_ip, user_agent, content_type, bundle_size, 400, 'decompression_failed')
+            log_failed_bundle(request_id, 'decompression', type(e).__name__, str(e), bundle_size, source_ip,
+                            bundle_data[:100].decode('utf-8', errors='ignore'), traceback.format_exc())
             return jsonify({'error': error_msg}), 400
 
-        # Parse JSON logs
-        try:
-            logs = json.loads(uncompressed_data.decode('utf-8'))
-            if not isinstance(logs, list):
-                logs = [logs]
-        except Exception as e:
-            error_msg = f"Failed to parse JSON: {str(e)}"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, uncompressed_size, 'failed', processing_time, error=error_msg)
-            update_bundle_status(request_id, 'failed')
-            return jsonify({'error': error_msg}), 400
+        # Stage 2: Parse lines
+        lines = uncompressed_data.decode('utf-8').strip().split('\n')
+        total_lines = len(lines)
+        valid_lines = 0
+        invalid_lines = 0
 
-        # Send to Kafka (initialize producer if needed)
-        kafka_producer = get_kafka_producer()
+        # Stage 3: Write to Kafka
+        kafka_start = time.time()
+        producer = get_kafka_producer()
 
-        if kafka_producer is None:
+        if not producer:
             error_msg = "Kafka producer not available"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, uncompressed_size, 'kafka_unavailable', processing_time, KAFKA_TOPIC, error_msg)
-            update_bundle_status(request_id, 'kafka_unavailable')
-            return jsonify({'error': error_msg}), 503
-
-        try:
-            for log_entry in logs:
-                log_entry['request_id'] = request_id
-                log_entry['ingestion_timestamp'] = datetime.utcnow().isoformat()
-                kafka_producer.send(KAFKA_TOPIC, value=log_entry)
-            kafka_producer.flush()
-        except Exception as e:
-            error_msg = f"Kafka send failed: {str(e)}"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, uncompressed_size, 'kafka_failed', processing_time, KAFKA_TOPIC, error_msg)
-            update_bundle_status(request_id, 'kafka_failed')
+            log_request(request_id, source_ip, user_agent, content_type, bundle_size, 500, 'kafka_unavailable')
+            log_failed_bundle(request_id, 'kafka_connection', 'KafkaUnavailable', error_msg, bundle_size, source_ip)
             return jsonify({'error': error_msg}), 500
 
-        # Log success metrics
-        processing_time = int((time.time() - start_time) * 1000)
-        log_metric(request_id, bundle_size, uncompressed_size, 'success', processing_time, KAFKA_TOPIC)
-        update_bundle_status(request_id, 'success')
+        kafka_successful = 0
+        kafka_failed = 0
+        kafka_errors = []
 
-        return jsonify({
+        for line in lines:
+            if not line.strip():
+                invalid_lines += 1
+                continue
+
+            try:
+                # Parse log line and create JSON message
+                log_entry = {
+                    'raw_log': line,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'request_id': request_id,
+                    'source': 'ingestion-api'
+                }
+
+                producer.send(KAFKA_TOPIC, log_entry)
+                kafka_successful += 1
+                valid_lines += 1
+            except Exception as e:
+                kafka_failed += 1
+                invalid_lines += 1
+                kafka_errors.append(str(e))
+
+        # Flush Kafka producer
+        try:
+            producer.flush(timeout=5)
+        except Exception as e:
+            kafka_errors.append(f"Flush error: {e}")
+
+        kafka_time = int((time.time() - kafka_start) * 1000)
+        total_time = int((time.time() - start_time) * 1000)
+
+        # Calculate average record size
+        avg_record_size = uncompressed_size // total_lines if total_lines > 0 else 0
+
+        # Log all metrics
+        status = 'success' if kafka_failed == 0 else 'partial_failure'
+
+        log_request(request_id, source_ip, user_agent, content_type, bundle_size, 201, 'completed')
+        log_bundle_processing(request_id, bundle_size, uncompressed_size, decomp_time,
+                            total_lines, valid_lines, invalid_lines, kafka_time, total_time, status)
+        log_kafka_production(request_id, KAFKA_TOPIC, total_lines, kafka_successful, kafka_failed,
+                           kafka_time, avg_record_size, '; '.join(kafka_errors[:5]))
+
+        # Log failures if any
+        if kafka_failed > 0:
+            log_failed_bundle(request_id, 'kafka_write', 'PartialFailure',
+                            f'{kafka_failed} records failed to write',
+                            bundle_size, source_ip, lines[0][:500] if lines else '',
+                            '; '.join(kafka_errors[:3]))
+
+        # Return success response
+        response = {
             'status': 'accepted',
             'request_id': request_id,
-            'logs_count': len(logs),
-            'processing_time_ms': processing_time
-        }), 201
+            'bundle_size_bytes': bundle_size,
+            'uncompressed_size_bytes': uncompressed_size,
+            'total_lines': total_lines,
+            'valid_lines': valid_lines,
+            'invalid_lines': invalid_lines,
+            'kafka_successful': kafka_successful,
+            'kafka_failed': kafka_failed,
+            'processing_time_ms': total_time
+        }
+
+        return jsonify(response), 201
 
     except Exception as e:
-        processing_time = int((time.time() - start_time) * 1000)
-        error_msg = str(e)
-        log_metric(request_id, 0, 0, 'error', processing_time, error=error_msg)
-        update_bundle_status(request_id, 'error')
-        return jsonify({'error': error_msg}), 500
+        # Catch-all error handler
+        error_msg = f"Processing failed: {e}"
+        total_time = int((time.time() - start_time) * 1000)
+
+        log_request(request_id, source_ip, user_agent, content_type, bundle_size, 500, 'processing_failed')
+        log_failed_bundle(request_id, 'processing', type(e).__name__, str(e),
+                         bundle_size, source_ip, bundle_data[:100].decode('utf-8', errors='ignore'),
+                         traceback.format_exc())
+
+        return jsonify({'error': error_msg, 'request_id': request_id}), 500
+
+
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    """Return real-time metrics"""
+    try:
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT metric_name, metric_value FROM ingestion_realtime_metrics")
+            rows = cursor.fetchall()
+            conn.close()
+
+            metrics_dict = {row[0]: row[1] for row in rows}
+            return jsonify(metrics_dict), 200
+        else:
+            return jsonify({'error': 'Database unavailable'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
-    # Initialize database on startup
-    init_db()
+    print("🚀 Starting DStreamBolt Ingestion Service (Optimized)")
+    print(f"   Kafka Broker: {KAFKA_BROKER}")
+    print(f"   Kafka Topic: {KAFKA_TOPIC}")
+    print(f"   MySQL Host: {MYSQL_HOST}")
+    print(f"   MySQL Database: {MYSQL_DB}")
+    print("   Note: Tables must be created using observability/setup_observability.sh")
+    print()
 
-    # Run the application
-    app.run(
-        host='0.0.0.0',
-        port=int(os.getenv('PORT', 5000)),
-        debug=os.getenv('DEBUG', 'False').lower() == 'true'
-    )
+    app.run(host='0.0.0.0', port=5000, debug=False)
 

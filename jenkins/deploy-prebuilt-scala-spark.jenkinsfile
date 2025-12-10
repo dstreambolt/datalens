@@ -152,7 +152,7 @@ SPARK_ARGS=(
     --driver-memory "$DRIVER_MEM"
     --executor-memory "$EXECUTOR_MEM"
     --executor-cores 1
-    --total-executor-cores 2
+    --total-executor-cores 1
     --class com.dstreambolt.processor.SparkProcessor
     --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.spark:spark-token-provider-kafka-0-10_2.12:3.5.0
     --conf spark.jars.ivy=/tmp/.ivy2

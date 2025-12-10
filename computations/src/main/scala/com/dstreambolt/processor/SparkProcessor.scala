@@ -12,7 +12,6 @@ import java.util.Properties
  */
 object SparkProcessor {
 
-  // Define log schema (matches ingestion service format)
   val logSchema: StructType = StructType(Array(
     StructField("timestamp", StringType, nullable = true),
     StructField("ip", StringType, nullable = true),
@@ -131,14 +130,15 @@ object SparkProcessor {
   }
 
   /**
-   * Streaming processing of Kafka messages
+   * Streaming processing of Kafka messages with MySQL sink
    */
   def processStreaming(
     spark: SparkSession,
     kafkaBroker: String,
     topic: String = "dstreambolt-logs",
     checkpointDir: String = "/tmp/spark-checkpoints",
-    windowDuration: String = "30 seconds"
+    windowDuration: String = "30 seconds",
+    mysqlConfig: Option[Map[String, String]] = None
   ): Unit = {
     import spark.implicits._
 
@@ -154,38 +154,130 @@ object SparkProcessor {
       .option("startingOffsets", "latest")
       .load()
 
-    // Parse JSON
+    // Parse JSON - use timestamp from data, not Kafka metadata
     val logsStream = streamDF
       .select(
-        from_json(col("value").cast("string"), logSchema).as("data"),
-        col("timestamp").as("kafka_timestamp")
+        from_json(col("value").cast("string"), logSchema).as("data")
       )
-      .select("data.*", "kafka_timestamp")
+      .select("data.*")
       .withColumn("processing_timestamp", current_timestamp())
+      .withColumn("event_timestamp", to_timestamp(col("timestamp")))
 
-    // Windowed aggregations
-    val windowedStats = logsStream
-      .withWatermark("kafka_timestamp", "1 minute")
+    // Windowed aggregations by status
+    val statusAggregations = logsStream
+      .withWatermark("event_timestamp", "2 minutes")
       .groupBy(
-        window(col("kafka_timestamp"), windowDuration),
+        window(col("event_timestamp"), windowDuration),
         col("status")
       )
       .agg(
         count("*").as("request_count"),
         avg("size").as("avg_response_size"),
-        avg("response_time").as("avg_response_time")
+        avg("response_time").as("avg_response_time"),
+        max("response_time").as("max_response_time"),
+        min("response_time").as("min_response_time")
+      )
+      .select(
+        col("window.start").as("window_start"),
+        col("window.end").as("window_end"),
+        col("status"),
+        col("request_count"),
+        col("avg_response_size"),
+        col("avg_response_time"),
+        col("max_response_time"),
+        col("min_response_time"),
+        current_timestamp().as("processing_timestamp")
       )
 
-    // Write aggregations to console
-    val query = windowedStats.writeStream
-      .outputMode("update")
-      .format("console")
-      .option("truncate", "false")
-      .option("checkpointLocation", checkpointDir)
-      .start()
+    // Endpoint aggregations
+    val endpointAggregations = logsStream
+      .withWatermark("event_timestamp", "2 minutes")
+      .groupBy(
+        window(col("event_timestamp"), windowDuration),
+        col("endpoint"),
+        col("method")
+      )
+      .agg(
+        count("*").as("request_count"),
+        avg("response_time").as("avg_response_time"),
+        expr("percentile_approx(response_time, 0.95)").as("p95_response_time"),
+        expr("percentile_approx(response_time, 0.99)").as("p99_response_time"),
+        countDistinct("ip").as("unique_ips"),
+        sum(when(col("status") >= 400, 1).otherwise(0)).as("error_count")
+      )
+      .select(
+        col("window.start").as("window_start"),
+        col("window.end").as("window_end"),
+        col("endpoint"),
+        col("method"),
+        col("request_count"),
+        col("avg_response_time"),
+        col("p95_response_time"),
+        col("p99_response_time"),
+        col("unique_ips"),
+        col("error_count"),
+        current_timestamp().as("processing_timestamp")
+      )
 
-    println("✅ Streaming query started. Press Ctrl+C to stop.")
-    query.awaitTermination()
+    if (mysqlConfig.isDefined) {
+      val config = mysqlConfig.get
+      val url = s"jdbc:mysql://${config("host")}:3306/${config("database")}"
+
+      // Write status aggregations to MySQL
+      val statusQuery = statusAggregations.writeStream
+        .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
+          println(s"📊 Writing status aggregations batch $batchId to MySQL")
+          batchDF.write
+            .format("jdbc")
+            .option("url", url)
+            .option("dbtable", "status_summary")
+            .option("user", config("user"))
+            .option("password", config("password"))
+            .option("driver", "com.mysql.cj.jdbc.Driver")
+            .mode("append")
+            .save()
+        }
+        .outputMode("update")
+        .option("checkpointLocation", s"$checkpointDir/status")
+        .trigger(Trigger.ProcessingTime(windowDuration))
+        .start()
+
+      // Write endpoint aggregations to MySQL
+      val endpointQuery = endpointAggregations.writeStream
+        .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
+          println(s"📊 Writing endpoint aggregations batch $batchId to MySQL")
+          batchDF.write
+            .format("jdbc")
+            .option("url", url)
+            .option("dbtable", "endpoint_summary")
+            .option("user", config("user"))
+            .option("password", config("password"))
+            .option("driver", "com.mysql.cj.jdbc.Driver")
+            .mode("append")
+            .save()
+        }
+        .outputMode("update")
+        .option("checkpointLocation", s"$checkpointDir/endpoint")
+        .trigger(Trigger.ProcessingTime(windowDuration))
+        .start()
+
+      println("✅ Streaming queries started. Writing to MySQL every window.")
+      println("Press Ctrl+C to stop.")
+
+      statusQuery.awaitTermination()
+    } else {
+      // Fallback to console output if MySQL not configured
+      val query = statusAggregations.writeStream
+        .outputMode("update")
+        .format("console")
+        .option("truncate", "false")
+        .option("checkpointLocation", checkpointDir)
+        .trigger(Trigger.ProcessingTime(windowDuration))
+        .start()
+
+      println("✅ Streaming query started (console mode). Press Ctrl+C to stop.")
+      query.awaitTermination()
+    }
   }
 
   /**
@@ -328,6 +420,19 @@ object SparkProcessor {
     spark.sparkContext.setLogLevel("WARN")
 
     try {
+      // Build MySQL config if provided
+      val mysqlConfig = if (config.mysqlHost.isDefined && config.mysqlUser.isDefined && config.mysqlPassword.isDefined) {
+        Some(Map(
+          "host" -> config.mysqlHost.get,
+          "user" -> config.mysqlUser.get,
+          "password" -> config.mysqlPassword.get,
+          "database" -> config.mysqlDatabase,
+          "table" -> config.mysqlTable
+        ))
+      } else {
+        None
+      }
+
       config.mode match {
         case "batch" =>
           val df = processBatch(
@@ -338,16 +443,7 @@ object SparkProcessor {
           )
 
           // Write to MySQL if configured
-          if (config.mysqlHost.isDefined && config.mysqlUser.isDefined && config.mysqlPassword.isDefined) {
-            val mysqlConfig = Map(
-              "host" -> config.mysqlHost.get,
-              "user" -> config.mysqlUser.get,
-              "password" -> config.mysqlPassword.get,
-              "database" -> config.mysqlDatabase,
-              "table" -> config.mysqlTable
-            )
-            writeToMySQL(df, mysqlConfig)
-          }
+          mysqlConfig.foreach(cfg => writeToMySQL(df, cfg))
 
         case "streaming" =>
           processStreaming(
@@ -355,7 +451,8 @@ object SparkProcessor {
             config.kafkaBroker,
             config.topic,
             config.checkpointDir,
-            config.windowDuration
+            config.windowDuration,
+            mysqlConfig
           )
       }
     } catch {
@@ -371,4 +468,3 @@ object SparkProcessor {
     }
   }
 }
-

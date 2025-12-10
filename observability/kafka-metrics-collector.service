@@ -1,0 +1,25 @@
+[Unit]
+Description=DStreamBolt Kafka Metrics Collector
+After=network.target kafka.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/dstreambolt/observability
+Environment="KAFKA_HOME=/opt/kafka"
+Environment="KAFKA_BROKER=localhost:9092"
+Environment="MYSQL_HOST=10.0.1.61"
+Environment="MYSQL_USER=dstreambolt"
+Environment="MYSQL_PASS=DStreamBolt2025!"
+Environment="MYSQL_DB=dstreambolt_metrics"
+Environment="COLLECTION_INTERVAL=60"
+ExecStart=/usr/bin/python3 /opt/dstreambolt/observability/kafka_metrics_collector.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/dstreambolt/kafka-metrics.log
+StandardError=append:/var/log/dstreambolt/kafka-metrics.log
+
+[Install]
+WantedBy=multi-user.target
+
