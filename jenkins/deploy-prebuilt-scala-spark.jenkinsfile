@@ -185,9 +185,11 @@ $SPARK_HOME/bin/spark-submit "${SPARK_ARGS[@]}"
                         sh "chmod +x submit_job.sh"
 
                         def workspace = pwd()
+                        // Copy JAR to current directory to flatten structure in tar
                         sh """
+                            cp target/scala-2.12/${env.JAR_NAME} ./
                             tar -czf ${workspace}/scala-spark-job-${env.GIT_COMMIT}.tar.gz \
-                                target/scala-2.12/${env.JAR_NAME} \
+                                ${env.JAR_NAME} \
                                 submit_job.sh \
                                 DEPLOY_INFO.txt
                         """
@@ -285,7 +287,8 @@ MYSQL_USER="dstreambolt"
 MYSQL_PASSWORD="DStreamBolt2025!"
 MYSQL_HOST="13.232.132.240"
 
-nohup ./submit_job.sh \\
+# Start Spark job completely detached from SSH session
+nohup setsid ./submit_job.sh \\
     "\$MASTER_URL" \\
     "${params.KAFKA_BROKER}" \\
     "${params.PROCESSING_MODE}" \\
@@ -295,18 +298,25 @@ nohup ./submit_job.sh \\
     "\$MYSQL_HOST" \\
     "\$MYSQL_USER" \\
     "\$MYSQL_PASSWORD" \\
-    > ${env.SPARK_LOGS}/scala-spark-job.log 2>&1 &
+    < /dev/null > ${env.SPARK_LOGS}/scala-spark-job.log 2>&1 &
 
 PID=\$!
 echo \$PID > spark_job.pid
 
 echo "✅ Job started (PID: \$PID)"
+echo "📄 Log file: ${env.SPARK_LOGS}/scala-spark-job.log"
 
-sleep 3
-if ps -p \$PID > /dev/null; then
-    echo "✅ Job is running"
+# Give it a moment to start
+sleep 5
+
+# Check if process started successfully
+if ps -p \$PID > /dev/null 2>&1; then
+    echo "✅ Job is running successfully"
+    echo "📊 Spark UI: http://\$PRIVATE_IP:8080"
+    echo "📊 Application UI: http://\$PRIVATE_IP:4040"
 else
     echo "❌ Job failed to start"
+    echo "📄 Last 50 lines of log:"
     tail -50 ${env.SPARK_LOGS}/scala-spark-job.log
     exit 1
 fi
