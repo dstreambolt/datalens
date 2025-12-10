@@ -202,7 +202,7 @@ object SparkProcessor {
         avg("response_time").as("avg_response_time"),
         expr("percentile_approx(response_time, 0.95)").as("p95_response_time"),
         expr("percentile_approx(response_time, 0.99)").as("p99_response_time"),
-        countDistinct("ip").as("unique_ips"),
+        approx_count_distinct("ip").as("unique_ips"),
         sum(when(col("status") >= 400, 1).otherwise(0)).as("error_count")
       )
       .select(
