@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS kafka_consumer_lag (
     partition_id INT NOT NULL,
     current_offset BIGINT,
     log_end_offset BIGINT,
-    lag BIGINT,
+    lag_count BIGINT,
     INDEX(timestamp),
     INDEX(consumer_group),
     INDEX(topic)

@@ -181,7 +181,7 @@ def collect_consumer_lag():
 
                             cursor.execute("""
                                 INSERT INTO kafka_consumer_lag
-                                (consumer_group, topic, partition_id, current_offset, log_end_offset, lag)
+                                (consumer_group, topic, partition_id, current_offset, log_end_offset, lag_count)
                                 VALUES (%s, %s, %s, %s, %s, %s)
                             """, (group, topic, partition, current_offset, log_end_offset, lag))
 

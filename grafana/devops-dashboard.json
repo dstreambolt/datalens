@@ -143,7 +143,7 @@
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
         "targets": [
           {
-            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, topic, SUM(lag) as value FROM kafka_consumer_lag WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time, topic ORDER BY time",
+            "rawSql": "SELECT DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as time, topic, SUM(lag_count) as value FROM kafka_consumer_lag WHERE timestamp >= NOW() - INTERVAL 1 HOUR GROUP BY time, topic ORDER BY time",
             "format": "time_series",
             "refId": "A"
           }
