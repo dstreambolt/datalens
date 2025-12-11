@@ -233,12 +233,12 @@
       },
       {
         "id": 9,
-        "title": "Response Time Percentiles",
+        "title": "Response Time Statistics",
         "type": "timeseries",
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
         "targets": [
           {
-            "rawSql": "SELECT window_start as time, AVG(avg_response_time) as 'Average', AVG(p95_response_time) as 'P95', AVG(p99_response_time) as 'P99' FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
+            "rawSql": "SELECT window_start as time, AVG(avg_response_time) as 'Average', AVG(max_response_time) as 'Max', AVG(min_response_time) as 'Min' FROM dstreambolt_metrics.status_summary WHERE window_start >= NOW() - INTERVAL 1 HOUR GROUP BY window_start ORDER BY window_start",
             "format": "time_series",
             "refId": "A"
           }
