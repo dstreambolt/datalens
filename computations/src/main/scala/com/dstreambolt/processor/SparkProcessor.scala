@@ -238,7 +238,7 @@ object SparkProcessor {
             batchDF.select("window_start", "window_end", "status", "request_count", "avg_response_time")
               .show(20, truncate = false)
 
-            println("\nWriting to MySQL table: status_summary")
+            println("\nWriting to MySQL table  ss: status_summary")
             batchDF.write
               .format("jdbc")
               .option("url", url)
