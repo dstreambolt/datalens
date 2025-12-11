@@ -338,7 +338,7 @@ def metrics():
 
 
 if __name__ == '__main__':
-    print("🚀 Starting DStreamBolt Ingestion Service (Optimized)")
+    print("🚀 Starting DataLens Ingestion Service (Optimized)")
     print(f"   Kafka Broker: {KAFKA_BROKER}")
     print(f"   Kafka Topic: {KAFKA_TOPIC}")
     print(f"   MySQL Host: {MYSQL_HOST}")
