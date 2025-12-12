@@ -216,7 +216,9 @@ def get_kafka_producer():
                 'compression_type': 'gzip',
                 'batch_size': 16384,
                 'linger_ms': 10,
-                'request_timeout_ms': 10000
+                'request_timeout_ms': 30000,
+                'api_version_auto_timeout_ms': 10000,
+                'connections_max_idle_ms': 180000
             }
 
             # Add SASL authentication if configured
@@ -1179,6 +1181,14 @@ else:
 def post_worker_init(worker):
     """Called after a worker process is forked - start threads here"""
     print(f"🔄 Initializing worker {worker.pid}...")
+
+    # Test Kafka connection immediately to set kafka_connected flag
+    print("🔗 Testing Kafka connection...")
+    kafka_producer = get_kafka_producer()
+    if kafka_producer:
+        print(f"✅ Kafka connected successfully in worker {worker.pid}")
+    else:
+        print(f"⚠️  Kafka connection failed in worker {worker.pid} (will retry in background)")
 
     # Start worker thread
     worker_thread = threading.Thread(target=process_bundle_worker, daemon=True)

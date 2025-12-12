@@ -64,7 +64,7 @@ loglevel = "info"
 proc_name = "dstreambolt-ingest"
 
 def post_worker_init(worker):
-    """Initialize worker after fork - start background threads"""
+    """Initialize worker after fork - start background threads and connect to Kafka"""
     from app import post_worker_init as app_init
     app_init(worker)
 GUNICORN_EOF
