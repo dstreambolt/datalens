@@ -184,13 +184,13 @@ output "service_endpoints" {
 output "direct_access" {
   description = "Direct EC2 access"
   value = {
-    ingest_ip           = module.ingest.public_ip
-    spark_master_ip     = module.compute.master_public_ip
-    spark_executor_ip   = module.compute.executor_public_ip
-    devops_ip           = module.devops.public_ip
-    kafka_ip            = module.kafka.private_ip
+    ingest_ip         = module.ingest.public_ip
+    spark_master_ip   = module.compute.master_public_ip
+    spark_executor_ip = module.compute.executor_public_ip
+    devops_ip         = module.devops.public_ip
+    kafka_ip          = module.kafka.private_ip
     # Backward compatibility
-    compute_ip          = module.compute.public_ip
+    compute_ip = module.compute.public_ip
   }
 }
 
@@ -243,5 +243,26 @@ output "summary" {
   ✅ All services are production-ready!
 
   EOT
+}
+
+# mTLS Outputs
+output "alb_dns_name" {
+  description = "ALB DNS name for mTLS configuration"
+  value       = module.alb.alb_dns_name
+}
+
+output "mtls_trust_store_bucket" {
+  description = "S3 bucket for mTLS CA certificates"
+  value       = module.alb.mtls_trust_store_bucket
+}
+
+output "mtls_trust_store_arn" {
+  description = "ARN of the mTLS trust store"
+  value       = module.alb.mtls_trust_store_arn
+}
+
+output "https_listener_arn" {
+  description = "ARN of the HTTPS listener with mTLS"
+  value       = module.alb.https_listener_arn
 }
 

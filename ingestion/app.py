@@ -12,11 +12,11 @@ Performance Features:
 - Separate processing thread (no HTTP blocking)
 - In-memory metrics buffer (flushed async)
 - Corruption detection and quarantine
-- Backpressure handling
+- Backpressure handling - Rate Limiting
 
 Security Features:
 - AWS Secrets Manager integration for credentials
-- mTLS certificate validation (optional)
+- mTLS certificate validation
 - Rate limiting per IP
 - Audit logging for all access attempts
 """

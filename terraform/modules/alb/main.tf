@@ -78,13 +78,58 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# HTTPS Listener with default landing page
+# S3 bucket for mTLS trust store (CA certificates)
+resource "aws_s3_bucket" "mtls_trust_store" {
+  bucket = "${var.project_name}-mtls-trust-store-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name = "${var.project_name}-mtls-trust-store"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "mtls_trust_store" {
+  bucket = aws_s3_bucket.mtls_trust_store.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Upload CA certificate to S3 (will be created separately)
+# After generating certs, upload with:
+# aws s3 cp certs/ca/ca-cert.pem s3://${bucket_name}/ca-bundle.pem
+
+# Trust store for mTLS
+resource "aws_lb_trust_store" "mtls" {
+  name = "${var.project_name}-mtls-trust-store"
+
+  ca_certificates_bundle_s3_bucket = aws_s3_bucket.mtls_trust_store.bucket
+  ca_certificates_bundle_s3_key    = "ca-bundle.pem"
+
+  # This will fail initially until CA cert is uploaded to S3
+  # Upload first, then apply
+
+  tags = {
+    Name = "${var.project_name}-mtls-trust-store"
+  }
+}
+
+# HTTPS Listener with mTLS enabled
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = "443"
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
   certificate_arn   = aws_acm_certificate.alb.arn
+
+  # Enable mTLS
+  mutual_authentication {
+    mode            = "verify" # Options: "off", "verify", "passthrough"
+    trust_store_arn = aws_lb_trust_store.mtls.arn
+
+    # When client cert validation fails, reject the request
+    ignore_client_certificate_expiry = false
+  }
 
   default_action {
     type = "fixed-response"
@@ -95,6 +140,9 @@ resource "aws_lb_listener" "https" {
     }
   }
 }
+
+# Data source to get account ID
+data "aws_caller_identity" "current" {}
 
 # Listener Rules for each service
 resource "aws_lb_listener_rule" "ingest" {
@@ -111,22 +159,5 @@ resource "aws_lb_listener_rule" "ingest" {
       values = ["/ingest", "/ingest/*", "/health"]
     }
   }
-}
-
-# Outputs
-output "alb_dns_name" {
-  value = aws_lb.main.dns_name
-}
-
-output "alb_arn" {
-  value = aws_lb.main.arn
-}
-
-output "ingest_target_group_arn" {
-  value = aws_lb_target_group.ingest.arn
-}
-
-output "https_listener_arn" {
-  value = aws_lb_listener.https.arn
 }
 

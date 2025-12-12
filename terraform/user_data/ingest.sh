@@ -1,318 +1,113 @@
 #!/bin/bash
 set -e
 
-# DStreamBolt Ingestion Service (dstreambolt-ingest) Setup
-# Lightweight Python Flask server with mTLS, Kafka producer, MySQL metrics
+# DStreamBolt Ingestion Service Setup - Production Version
+# High-performance ingestion with AWS Secrets Manager integration
 
-echo "=========================================="
-echo "🚀 DStreamBolt Ingestion Service Setup"
-echo "=========================================="
+echo "================================================================================"
+echo "🚀 DStreamBolt Ingestion Service - Production Setup"
+echo "================================================================================"
 
-# Cleanup old dstreambolt-agent service if exists
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Checking for old dstreambolt-agent service..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# Get instance metadata
+INSTANCE_ID=$(ec2-metadata --instance-id | cut -d " " -f 2)
+echo "Instance ID: $INSTANCE_ID"
 
+# Cleanup old installations
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "1️⃣  Cleaning up old installations..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Stop and remove old dstreambolt-agent service
 if systemctl list-units --all | grep -q "dstreambolt-agent.service"; then
-    echo "⚠️  Found old dstreambolt-agent service, removing..."
-
-    # Stop the old service
+    echo "⚠️  Removing old dstreambolt-agent service..."
     systemctl stop dstreambolt-agent 2>/dev/null || true
     systemctl disable dstreambolt-agent 2>/dev/null || true
-
-    # Remove service file
     rm -f /etc/systemd/system/dstreambolt-agent.service
-
-    # Remove old nginx config
-    rm -f /etc/nginx/sites-available/dstreambolt-agent
-    rm -f /etc/nginx/sites-enabled/dstreambolt-agent
-
-    # Reload systemd
-    systemctl daemon-reload
-
-    echo "✅ Old dstreambolt-agent service removed"
-else
-    echo "✅ No old service found, proceeding with fresh installation"
+    echo "✅ Old dstreambolt-agent removed"
 fi
 
-# Cleanup and prepare for fresh installation
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Preparing for fresh installation..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Stop existing dstreambolt-ingest service if running
+# Stop existing dstreambolt-ingest service
 if systemctl is-active --quiet dstreambolt-ingest 2>/dev/null; then
     echo "Stopping existing dstreambolt-ingest service..."
     systemctl stop dstreambolt-ingest
 fi
 
-# Backup existing installation if it exists
-if [ -d "/opt/dstreambolt/agent" ]; then
-    echo "Backing up existing installation..."
-    BACKUP_DIR="/opt/dstreambolt/backups/agent-backup-$(date +%Y%m%d-%H%M%S)"
-    mkdir -p /opt/dstreambolt/backups
-    cp -r /opt/dstreambolt/agent "$BACKUP_DIR" 2>/dev/null || true
-    echo "✅ Backup created at: $BACKUP_DIR"
-
-    # Clean up old installation
-    rm -rf /opt/dstreambolt/agent
-    echo "✅ Old installation removed"
-fi
+# Backup and remove old installations
+for OLD_DIR in "/opt/dstreambolt/agent" "/opt/dstreambolt/ingest"; do
+    if [ -d "$OLD_DIR" ]; then
+        BACKUP_DIR="/opt/dstreambolt/backups/backup-$(basename $OLD_DIR)-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p /opt/dstreambolt/backups
+        cp -r "$OLD_DIR" "$BACKUP_DIR" 2>/dev/null || true
+        rm -rf "$OLD_DIR"
+        echo "✅ Backed up and removed: $OLD_DIR"
+    fi
+done
 
 # Update system
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Updating system packages..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "2️⃣  Updating system packages..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get upgrade -y
+apt-get install -y python3 python3-pip python3-venv mysql-client awscli jq
 
-# Install required packages
-apt-get install -y python3 python3-pip python3-venv mysql-client nginx
+# Create application directory with proper ownership
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "3️⃣  Creating application structure..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+mkdir -p /opt/dstreambolt/ingest
+mkdir -p /opt/dstreambolt/queue
+mkdir -p /opt/dstreambolt/queue/processing
+mkdir -p /opt/dstreambolt/queue/failed
+mkdir -p /opt/dstreambolt/queue/corrupted
+mkdir -p /etc/dstreambolt/certs/ca
+chown -R ubuntu:ubuntu /opt/dstreambolt
+chown -R ubuntu:ubuntu /etc/dstreambolt
 
-# Create application directory
-mkdir -p /opt/dstreambolt/agent
-cd /opt/dstreambolt/agent
-
-# Create certificates directory
-mkdir -p /opt/dstreambolt/certs
-cd /opt/dstreambolt/certs
-
-# Save CA certificate
-cat > ca.crt << 'EOF'
-${ca_cert}
-EOF
-
-# Save server certificate
-cat > server.crt << 'EOF'
-${server_cert}
-EOF
-
-# Save server private key
-cat > server.key << 'EOF'
-${server_key}
-EOF
-
-chmod 600 server.key
-chmod 644 server.crt ca.crt
-
-# Create Python application
-cd /opt/dstreambolt/agent
+cd /opt/dstreambolt/ingest
 
 # Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
+echo "Creating Python virtual environment..."
+sudo -u ubuntu python3 -m venv venv
+sudo -u ubuntu /opt/dstreambolt/ingest/venv/bin/pip install --upgrade pip --quiet
 
 # Install Python dependencies
-pip install --upgrade pip
-pip install flask gunicorn kafka-python pymysql boto3 prometheus-client
+echo "Installing Python packages..."
+sudo -u ubuntu /opt/dstreambolt/ingest/venv/bin/pip install \
+  flask>=3.0.0 \
+  gunicorn>=21.2.0 \
+  kafka-python>=2.0.2 \
+  pymysql>=1.1.0 \
+  boto3>=1.34.0 \
+  prometheus-client>=0.19.0 \
+  cryptography>=41.0.0 \
+  --quiet
 
-# Create the ingestion application
-cat > app.py << 'PYEOF'
-import gzip
-import json
-import time
-import os
-from datetime import datetime
-from flask import Flask, request, jsonify
-from kafka import KafkaProducer
-import pymysql
-from functools import wraps
+echo "✅ Python environment ready"
 
-app = Flask(__name__)
+# Fetch configuration from Terraform variables (injected at instance launch)
+MYSQL_HOST="${mysql_host}"
+KAFKA_BROKER="${kafka_broker}"
 
-# Configuration
-MYSQL_HOST = '${mysql_host}'
-MYSQL_USER = 'root'
-MYSQL_PASSWORD = '${mysql_password}'
-MYSQL_DB = 'dstreambolt_metrics'
+echo "Configuration:"
+echo "  MySQL Host: $MYSQL_HOST"
+echo "  Kafka Broker: $KAFKA_BROKER"
 
-KAFKA_BROKER = '${kafka_broker}'
+# Deploy application files via Jenkins after instance is ready
+# For now, create placeholder that will be replaced by deployment
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "4️⃣  Application will be deployed via Jenkins..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Directory structure created"
+echo "✅ Python environment ready"
+echo ""
+echo "Next steps:"
+echo "1. Run Jenkins job 'DStreamBolt-Deploy-Ingestion'"
+echo "2. Service will be started automatically by deployment"
+echo ""
 
-# Initialize Kafka producer
-try:
-    producer = KafkaProducer(
-        bootstrap_servers=[KAFKA_BROKER],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        retries=3,
-        acks='all'
-    )
-    kafka_connected = True
-except Exception as e:
-    print(f"Kafka connection failed: {e}")
-    kafka_connected = False
-
-# Database connection
-def get_db_connection():
-    try:
-        return pymysql.connect(
-            host=MYSQL_HOST,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DB,
-            autocommit=True
-        )
-    except Exception as e:
-        print(f"MySQL connection failed: {e}")
-        return None
-
-# Initialize database
-def init_db():
-    time.sleep(30)  # Wait for MySQL to be ready
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE DATABASE IF NOT EXISTS dstreambolt_metrics
-        """)
-        cursor.execute("USE dstreambolt_metrics")
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ingestion_metrics (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                request_id VARCHAR(255),
-                bundle_size_bytes INT,
-                uncompressed_size_bytes INT,
-                status VARCHAR(50),
-                processing_time_ms INT,
-                kafka_topic VARCHAR(255),
-                error_message TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS bundle_status (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                request_id VARCHAR(255) UNIQUE,
-                status VARCHAR(50),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX(request_id)
-            )
-        """)
-        conn.close()
-        print("Database initialized successfully")
-
-# Log metrics to MySQL
-def log_metric(request_id, bundle_size, uncompressed_size, status, processing_time, kafka_topic='', error=''):
-    try:
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO ingestion_metrics
-                (request_id, bundle_size_bytes, uncompressed_size_bytes, status, processing_time_ms, kafka_topic, error_message)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (request_id, bundle_size, uncompressed_size, status, processing_time, kafka_topic, error))
-            conn.close()
-    except Exception as e:
-        print(f"Failed to log metric: {e}")
-
-# Update bundle status
-def update_bundle_status(request_id, status):
-    try:
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO bundle_status (request_id, status)
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE status=%s, updated_at=CURRENT_TIMESTAMP
-            """, (request_id, status, status))
-            conn.close()
-    except Exception as e:
-        print(f"Failed to update bundle status: {e}")
-
-# Health check endpoint
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({
-        'status': 'healthy',
-        'service': 'ingestion-api',
-        'version': '1.0.0',
-        'kafka': 'connected' if kafka_connected else 'disconnected',
-        'timestamp': time.time()
-    }), 200
-
-# Ingestion endpoint
-@app.route('/ingest', methods=['POST'])
-def ingest():
-    start_time = time.time()
-    request_id = request.headers.get('X-Request-ID', f"req_{int(time.time() * 1000)}")
-
-    try:
-        # Get compressed data
-        compressed_data = request.data
-        bundle_size = len(compressed_data)
-
-        if bundle_size == 0:
-            return jsonify({'error': 'No data received'}), 400
-
-        # Decompress
-        try:
-            uncompressed_data = gzip.decompress(compressed_data)
-            uncompressed_size = len(uncompressed_data)
-        except Exception as e:
-            error_msg = f"Failed to decompress: {str(e)}"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, 0, 'failed', processing_time, error=error_msg)
-            update_bundle_status(request_id, 'failed')
-            return jsonify({'error': error_msg}), 400
-
-        # Parse JSON logs
-        try:
-            logs = json.loads(uncompressed_data.decode('utf-8'))
-            if not isinstance(logs, list):
-                logs = [logs]
-        except Exception as e:
-            error_msg = f"Failed to parse JSON: {str(e)}"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, uncompressed_size, 'failed', processing_time, error=error_msg)
-            update_bundle_status(request_id, 'failed')
-            return jsonify({'error': error_msg}), 400
-
-        # Send to Kafka
-        kafka_topic = 'dstreambolt-logs'
-        try:
-            for log_entry in logs:
-                log_entry['request_id'] = request_id
-                log_entry['ingestion_timestamp'] = datetime.utcnow().isoformat()
-                producer.send(kafka_topic, value=log_entry)
-            producer.flush()
-        except Exception as e:
-            error_msg = f"Kafka send failed: {str(e)}"
-            processing_time = int((time.time() - start_time) * 1000)
-            log_metric(request_id, bundle_size, uncompressed_size, 'kafka_failed', processing_time, kafka_topic, error_msg)
-            update_bundle_status(request_id, 'kafka_failed')
-            return jsonify({'error': error_msg}), 500
-
-        # Log success metrics
-        processing_time = int((time.time() - start_time) * 1000)
-        log_metric(request_id, bundle_size, uncompressed_size, 'success', processing_time, kafka_topic)
-        update_bundle_status(request_id, 'success')
-
-        return jsonify({
-            'status': 'accepted',
-            'request_id': request_id,
-            'logs_count': len(logs),
-            'processing_time_ms': processing_time
-        }), 201
-
-    except Exception as e:
-        processing_time = int((time.time() - start_time) * 1000)
-        error_msg = str(e)
-        log_metric(request_id, 0, 0, 'error', processing_time, error=error_msg)
-        update_bundle_status(request_id, 'error')
-        return jsonify({'error': error_msg}), 500
-
-if __name__ == '__main__':
-    # Initialize database
-    init_db()
-
-    # Run with Gunicorn in production
-    # gunicorn -w 4 -b 0.0.0.0:5000 app:app
-    app.run(host='0.0.0.0', port=5000, debug=False)
-PYEOF
-
-# Create systemd service
+# Create systemd service file (will be activated by deployment)
 cat > /etc/systemd/system/dstreambolt-ingest.service << 'EOF'
 [Unit]
 Description=DStreamBolt Ingestion Service
@@ -320,106 +115,128 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/dstreambolt/agent
-Environment="PATH=/opt/dstreambolt/agent/venv/bin"
-ExecStart=/opt/dstreambolt/agent/venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 --timeout 120 app:app
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/dstreambolt/ingest
+Environment="PATH=/opt/dstreambolt/ingest/venv/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/opt/dstreambolt/ingest/venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 --timeout 120 --config gunicorn_config.py app:app
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dstreambolt-ingest
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Configure Nginx as reverse proxy
+# Reload systemd
+systemctl daemon-reload
+systemctl enable dstreambolt-ingest
+
+echo "✅ Systemd service configured"
+
+# Install and configure Nginx as reverse proxy
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "5️⃣  Configuring Nginx..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Install Nginx if not already installed
+if ! command -v nginx &> /dev/null; then
+    apt-get install -y nginx
+fi
+
+# Create Nginx configuration for the ingestion service
 cat > /etc/nginx/sites-available/dstreambolt-ingest << 'EOF'
 server {
     listen 80 default_server;
     server_name _;
 
+    client_max_body_size 50M;
+    client_body_timeout 120s;
+
+    # Health check endpoint
     location /health {
         proxy_pass http://127.0.0.1:5000/health;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 10s;
     }
 
+    # Ingestion endpoint
     location /ingest {
-        client_max_body_size 20M;
         proxy_pass http://127.0.0.1:5000/ingest;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Pass ALB mTLS headers
+        proxy_set_header X-Amzn-Mtls-Clientcert $http_x_amzn_mtls_clientcert;
+        proxy_set_header X-Amzn-Mtls-Clientcert-Serial-Number $http_x_amzn_mtls_clientcert_serial_number;
+        proxy_set_header X-Amzn-Mtls-Clientcert-Subject $http_x_amzn_mtls_clientcert_subject;
+
         proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+
+    # Metrics endpoint
+    location /metrics {
+        proxy_pass http://127.0.0.1:5000/metrics;
+        proxy_set_header Host $host;
+        proxy_read_timeout 10s;
     }
 }
 EOF
 
+# Enable the site
 ln -sf /etc/nginx/sites-available/dstreambolt-ingest /etc/nginx/sites-enabled/default
 
-# Test nginx configuration
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Testing Nginx configuration..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if nginx -t; then
-    echo "✅ Nginx configuration is valid"
+# Test Nginx configuration
+if nginx -t 2>&1; then
+    echo "✅ Nginx configuration valid"
     systemctl restart nginx
+    systemctl enable nginx
+    echo "✅ Nginx restarted"
 else
     echo "❌ Nginx configuration has errors"
-    exit 1
+    nginx -t
 fi
 
-# Start the service
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Starting DStreamBolt Ingestion Service..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-systemctl daemon-reload
-systemctl enable dstreambolt-ingest
-systemctl start dstreambolt-ingest
-
-# Wait for service to start
-sleep 5
-
-# Verify service is running
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Verifying installation..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-if systemctl is-active --quiet dstreambolt-ingest; then
-    echo "✅ dstreambolt-ingest service is running"
-else
-    echo "❌ dstreambolt-ingest service failed to start"
-    echo "Checking logs..."
-    journalctl -u dstreambolt-ingest -n 20 --no-pager
-    exit 1
-fi
-
-# Test health endpoint
-HEALTH_CHECK=$(curl -s http://localhost:5000/health 2>/dev/null || echo "failed")
-if [[ $HEALTH_CHECK == *"healthy"* ]]; then
-    echo "✅ Health endpoint is responding"
-else
-    echo "⚠️  Health endpoint not responding yet (service may still be initializing)"
-fi
-
-# Display summary
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ DStreamBolt Ingestion Service Setup Complete!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "================================================================================"
+echo "✅ DStreamBolt Ingestion Service - Bootstrap Complete"
+echo "================================================================================"
 echo ""
-echo "Service Details:"
-echo "  Name: dstreambolt-ingest"
-echo "  Port: 5000 (internal), 80 (nginx)"
-echo "  Status: $(systemctl is-active dstreambolt-ingest)"
+echo "Status:"
+echo "  ✅ Python environment created"
+echo "  ✅ Directory structure ready"
+echo "  ✅ Systemd service configured"
+echo "  ✅ Nginx configured and running"
 echo ""
-echo "Endpoints:"
-echo "  Health: http://localhost/health"
-echo "  Ingest: http://localhost/ingest (POST)"
+echo "Next Steps:"
+echo "  1. Deploy application code via Jenkins"
+echo "     Job: DStreamBolt-Deploy-Ingestion"
+echo "     Target IP: $(hostname -I | awk '{print $1}')"
 echo ""
-echo "Service status:"
-systemctl status dstreambolt-ingest --no-pager | head -15
+echo "  2. Service will start automatically after deployment"
 echo ""
-echo "To view logs:"
+echo "Verification Commands:"
+echo "  systemctl status dstreambolt-ingest"
 echo "  journalctl -u dstreambolt-ingest -f"
+echo "  curl http://localhost/health"
+echo ""
+echo "Configuration:"
+echo "  Working Directory: /opt/dstreambolt/ingest"
+echo "  Queue Directory: /opt/dstreambolt/queue"
+echo "  Service User: ubuntu"
+echo "  Nginx Port: 80"
+echo "  Application Port: 5000"
 echo ""
 

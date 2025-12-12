@@ -67,12 +67,12 @@ output "executor_private_ip" {
 
 # Backward compatibility outputs
 output "public_ip" {
-  value = aws_instance.spark_master.public_ip
+  value       = aws_instance.spark_master.public_ip
   description = "Deprecated: Use master_public_ip instead"
 }
 
 output "private_ip" {
-  value = aws_instance.spark_master.private_ip
+  value       = aws_instance.spark_master.private_ip
   description = "Deprecated: Use master_private_ip instead"
 }
 

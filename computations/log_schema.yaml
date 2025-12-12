@@ -1,0 +1,70 @@
+# DStreamBolt Spark Processor - Log Schema Configuration
+# This file defines how to parse Apache Combined Log Format logs
+
+columns:
+  - name: ip
+    type: string
+    position: 1
+    description: "Client IP address"
+
+  - name: user
+    type: string
+    position: 2
+    description: "Remote user (usually -)"
+
+  - name: auth
+    type: string
+    position: 3
+    description: "Authenticated user (usually -)"
+
+  - name: timestamp
+    type: string
+    position: 4
+    description: "Request timestamp"
+
+  - name: method
+    type: string
+    position: 5
+    description: "HTTP method (GET, POST, etc.)"
+
+  - name: endpoint
+    type: string
+    position: 6
+    description: "Request path/endpoint"
+
+  - name: protocol
+    type: string
+    position: 7
+    description: "HTTP protocol version"
+
+  - name: status
+    type: integer
+    position: 8
+    description: "HTTP status code"
+
+  - name: size
+    type: integer
+    position: 9
+    description: "Response size in bytes"
+
+  - name: referer
+    type: string
+    position: 10
+    description: "HTTP referer"
+
+  - name: user_agent
+    type: string
+    position: 11
+    description: "User agent string"
+
+  - name: response_time
+    type: double
+    position: 12
+    description: "Response time in seconds"
+
+# Timestamp format for parsing
+timestamp_format: "dd/MMM/yyyy:HH:mm:ss Z"
+
+# Example log line:
+# 192.168.1.1 - - [05/Dec/2025:10:30:45 +0000] "GET /api/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0" 0.523
+
