@@ -332,9 +332,15 @@ def validate_mtls_certificate(request):
 
     try:
         import urllib.parse
-        from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
         from datetime import datetime, timezone
+
+        # Import cryptography with error handling
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.backends import default_backend
+        except ImportError:
+            print("❌ cryptography library not installed - mTLS validation failed")
+            return False, 'Server configuration error: cryptography library missing', None
 
         # Get certificate from ALB header
         cert_header = request.headers.get('X-Amzn-Mtls-Clientcert', '')
@@ -1169,11 +1175,38 @@ def metrics():
 # Initialize directories on module load
 init_directories()
 
-# Print authentication status
+# Validate mTLS configuration at startup
 if MTLS_ENABLED:
     print("🔐 mTLS authentication enabled")
     print(f"   CA Certificate: {MTLS_CA_CERT_PATH}")
     print(f"   CRL Check: {'Enabled' if MTLS_CHECK_CRL else 'Disabled'}")
+
+    # Verify cryptography library is installed
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+        print("   ✅ cryptography library available")
+    except ImportError:
+        print("   ❌ ERROR: cryptography library not found!")
+        print("   Install: pip install cryptography")
+        print("   mTLS will not work without this library")
+        # Don't exit - allow service to start but mTLS will fail
+
+    # Verify CA certificate exists
+    if os.path.exists(MTLS_CA_CERT_PATH):
+        print(f"   ✅ CA certificate found: {MTLS_CA_CERT_PATH}")
+        try:
+            with open(MTLS_CA_CERT_PATH, 'r') as f:
+                cert_content = f.read()
+                if 'BEGIN CERTIFICATE' in cert_content:
+                    print("   ✅ CA certificate format valid")
+                else:
+                    print("   ⚠️  CA certificate may be invalid (missing PEM header)")
+        except Exception as e:
+            print(f"   ⚠️  Could not read CA certificate: {e}")
+    else:
+        print(f"   ❌ ERROR: CA certificate not found at {MTLS_CA_CERT_PATH}")
+        print("   mTLS authentication will fail without valid CA certificate")
 else:
     print("⚠️  mTLS authentication disabled - running in open mode")
 

@@ -50,6 +50,108 @@ python3 01-generate-logs.py --count 5000 --error-rate 15 --output logs/high-erro
 - `--interval SECONDS` - Delay between log entries in stream mode (default: 0.1)
 - `--error-rate PERCENT` - Percentage of error responses (default: 10)
 
+### 2. Send Logs to Ingestion Service
+
+Send logs to the DStreamBolt ingestion API with optional mTLS authentication:
+
+#### Basic Usage (No mTLS)
+
+```bash
+# Batch mode - send all logs at once
+python3 02-send-to-ingest.py logs/access.log \
+  --alb-url https://dstreambolt-alb-xxxxx.elb.amazonaws.com
+
+# Streaming mode - send in batches
+python3 02-send-to-ingest.py logs/access.log \
+  --alb-url https://dstreambolt-alb-xxxxx.elb.amazonaws.com \
+  --mode stream \
+  --batch-size 50 \
+  --delay 2.0
+```
+
+#### With mTLS Client Authentication
+
+For production environments with mTLS enabled:
+
+```bash
+# First, generate certificates (one-time setup)
+cd /Users/skalaise/apps/cloud/terraform/dstream_bolt
+./generate_mtls_certs.sh
+
+# Send logs with mTLS
+python3 02-send-to-ingest.py logs/access.log \
+  --alb-url https://ingest.dstreambolt.dashbird.com \
+  --client-cert certs/client/client-cert.pem \
+  --client-key certs/client/client-key.pem \
+  --ca-cert certs/ca/ca-cert.pem
+
+# Streaming with mTLS
+python3 02-send-to-ingest.py logs/access.log \
+  --alb-url https://ingest.dstreambolt.dashbird.com \
+  --mode stream \
+  --batch-size 100 \
+  --delay 1.0 \
+  --client-cert certs/client/client-cert.pem \
+  --client-key certs/client/client-key.pem \
+  --ca-cert certs/ca/ca-cert.pem
+```
+
+**Options:**
+- `--alb-url URL` - Ingestion service URL (required)
+- `--mode {batch,stream}` - Sending mode (default: batch)
+- `--batch-size N` - Lines per batch in stream mode (default: 100)
+- `--delay SECONDS` - Delay between batches in stream mode (default: 1.0)
+- `--client-cert FILE` - Client certificate for mTLS
+- `--client-key FILE` - Client private key for mTLS
+- `--ca-cert FILE` - CA certificate for server verification
+- `--no-verify` - Disable SSL verification (insecure, for testing only)
+
+**mTLS Setup:**
+
+1. Generate certificates:
+   ```bash
+   ./generate_mtls_certs.sh
+   ```
+
+2. Deploy server certificates to ingestion instances:
+   ```bash
+   # Copy CA and server certificates
+   scp -r certs/ca ubuntu@<ingestion-ip>:/etc/dstreambolt/certs/
+   scp -r certs/server ubuntu@<ingestion-ip>:/etc/dstreambolt/certs/
+   ```
+
+3. Enable mTLS on the ingestion service:
+   ```bash
+   # SSH to ingestion server
+   ssh ubuntu@<ingestion-ip>
+   
+   # Update service environment
+   sudo tee -a /etc/systemd/system/dstreambolt-ingest.service.d/override.conf << EOF
+   [Service]
+   Environment="MTLS_ENABLED=true"
+   Environment="MTLS_CA_CERT_PATH=/etc/dstreambolt/certs/ca/ca-cert.pem"
+   EOF
+   
+   # Reload and restart
+   sudo systemctl daemon-reload
+   sudo systemctl restart dstreambolt-ingest
+   ```
+
+4. Distribute client certificates to authorized clients:
+   ```bash
+   # Each client needs:
+   # - certs/client/client-cert.pem
+   # - certs/client/client-key.pem
+   # - certs/ca/ca-cert.pem (for server verification)
+   ```
+
+**Security Notes:**
+- Keep private keys secure (`.pem` files with `-key` in the name)
+- Never commit certificates to version control
+- Rotate certificates regularly (use `--days` parameter in generation script)
+- Use separate client certificates for each client/application
+- Monitor certificate expiration dates
+
 **Output Format:**
 ```
 192.168.1.100 - john_doe [05/Dec/2025:10:30:45 +0000] "GET /api/v1/users HTTP/1.1" 200 1234 "https://example.com" "Mozilla/5.0..."
