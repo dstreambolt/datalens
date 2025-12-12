@@ -1127,9 +1127,9 @@ def metrics_flusher_worker():
                 # Update realtime metrics table
                 for metric_name, value in current_metrics.items():
                     cursor.execute("""
-                        INSERT INTO ingestion_realtime_metrics (metric_name, metric_value, updated_at)
-                        VALUES (%s, %s, NOW())
-                        ON DUPLICATE KEY UPDATE metric_value = %s, updated_at = NOW()
+                        INSERT INTO ingestion_realtime_metrics (metric_name, metric_value)
+                        VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE metric_value = %s
                     """, (metric_name, value, value))
 
                 conn.close()

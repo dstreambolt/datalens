@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'SPARK_MASTER_IPS', defaultValue: '10.0.1.123', description: 'Comma-separated Spark master IPs (private IPs)')
+        string(name: 'SPARK_MASTER_IPS', defaultValue: '10.0.1.199', description: 'Comma-separated Spark master IPs (private IPs)')
         string(name: 'GIT_BRANCH', defaultValue: 'release/v1.0.1', description: 'Git branch to deploy')
         string(name: 'REMOTE_USER', defaultValue: 'ubuntu', description: 'SSH username')
         string(name: 'KAFKA_BROKER', defaultValue: '10.0.10.101:9092', description: 'Kafka broker')
@@ -10,6 +10,7 @@ pipeline {
         string(name: 'SPARK_DRIVER_MEMORY', defaultValue: '512m', description: 'Driver memory')
         string(name: 'SPARK_EXECUTOR_MEMORY', defaultValue: '512m', description: 'Executor memory')
         string(name: 'SPARK_DRIVER_PORT', defaultValue: '39499', description: 'Driver port')
+        string(name: 'AWS_REGION', defaultValue: 'ap-south-1', description: 'AWS region for Secrets Manager')
         booleanParam(name: 'AUTO_START', defaultValue: true, description: 'Start job after deployment')
     }
 
@@ -119,21 +120,19 @@ MODE="$3"
 DRIVER_MEM="$4"
 EXECUTOR_MEM="$5"
 DRIVER_PORT="$6"
-MYSQL_HOST="${7:-10.0.1.61}"  # DevOps private IP for MySQL
-MYSQL_USER="${8:-root}"
-MYSQL_PASSWORD="${9:-}"
+AWS_REGION="${7:-ap-south-1}"
 
 PRIVATE_IP=$(hostname -I | awk '{print $1}')
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🚀 Starting Scala Spark Job"
+echo "🚀 Starting Scala Spark Job with AWS Secrets Manager"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Master: $MASTER_URL"
 echo "Kafka: $KAFKA_BROKER"
 echo "Mode: $MODE"
 echo "Driver Memory: $DRIVER_MEM"
 echo "Executor Memory: $EXECUTOR_MEM"
-echo "MySQL: $MYSQL_HOST"
+echo "AWS Region: $AWS_REGION"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 JAR_FILE=$(ls -t *.jar 2>/dev/null | head -1)
@@ -145,7 +144,27 @@ fi
 
 echo "📦 Using JAR: $JAR_FILE"
 
-# Build Spark submit command with MySQL parameters
+# Check IAM role
+echo "🔐 Checking IAM role for Secrets Manager access..."
+if curl -s -f http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null 2>&1; then
+    ROLE=$(curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+    echo "✅ IAM Role attached: $ROLE"
+
+    # Test Secrets Manager access
+    if aws secretsmanager list-secrets --region $AWS_REGION > /dev/null 2>&1; then
+        echo "✅ Secrets Manager access verified"
+        echo "📊 MySQL credentials will be loaded from AWS Secrets Manager"
+    else
+        echo "⚠️  WARNING: Cannot access Secrets Manager"
+        echo "   Spark will attempt to load secrets, but may fall back to environment variables"
+    fi
+else
+    echo "⚠️  WARNING: No IAM role attached"
+    echo "   Spark will fall back to environment variables for MySQL credentials"
+fi
+
+# Build Spark submit command
+# Note: MySQL credentials will be loaded automatically by SparkProcessor from Secrets Manager
 SPARK_ARGS=(
     --master "$MASTER_URL"
     --deploy-mode client
@@ -168,19 +187,20 @@ SPARK_ARGS=(
     --mode "$MODE"
 )
 
-# Add MySQL parameters if provided
-if [ ! -z "$MYSQL_HOST" ] && [ ! -z "$MYSQL_USER" ]; then
-    SPARK_ARGS+=(--mysql-host "$MYSQL_HOST")
-    SPARK_ARGS+=(--mysql-user "$MYSQL_USER")
-    SPARK_ARGS+=(--mysql-database "dstreambolt_metrics")
-    SPARK_ARGS+=(--mysql-table "spark_results")
-
-    if [ ! -z "$MYSQL_PASSWORD" ]; then
-        SPARK_ARGS+=(--mysql-password "$MYSQL_PASSWORD")
-    fi
-
-    echo "📊 MySQL metrics will be written to $MYSQL_HOST/dstreambolt_metrics"
-fi
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔐 Security: Using AWS Secrets Manager"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "MySQL credentials will be loaded securely from:"
+echo "  • Secret: dstreambolt/mysql"
+echo "  • Region: $AWS_REGION"
+echo ""
+echo "Fallback order:"
+echo "  1. AWS Secrets Manager (recommended)"
+echo "  2. Environment variables (if Secrets Manager fails)"
+echo "  3. Continue without MySQL sink (graceful degradation)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
 
 $SPARK_HOME/bin/spark-submit "${SPARK_ARGS[@]}"
 '''
@@ -277,19 +297,20 @@ ENDSSH
                                 ssh -i "\${SSH_KEY}" -o StrictHostKeyChecking=no ${params.REMOTE_USER}@${ip} << 'ENDSSH'
 PRIVATE_IP=\$(hostname -I | awk '{print \$1}')
 MASTER_URL="spark://\$PRIVATE_IP:7077"
+AWS_REGION="${params.AWS_REGION}"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🚀 Starting Spark Job with Secrets Manager"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Master URL: \$MASTER_URL"
+echo "AWS Region: \$AWS_REGION"
+echo "Security: Credentials loaded from AWS Secrets Manager"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 cd ${env.DEPLOY_PATH}
 
-# MySQL credentials (dstreambolt user with password authentication)
-MYSQL_USER="dstreambolt"
-MYSQL_PASSWORD="DStreamBolt2025!"
-MYSQL_HOST="10.0.1.61"  # DevOps private IP (was 13.232.132.240 public IP)
-
 # Start Spark job completely detached from SSH session
+# Note: No MySQL credentials passed - Spark will load from Secrets Manager
 nohup setsid ./submit_job.sh \\
     "\$MASTER_URL" \\
     "${params.KAFKA_BROKER}" \\
@@ -297,9 +318,7 @@ nohup setsid ./submit_job.sh \\
     "${params.SPARK_DRIVER_MEMORY}" \\
     "${params.SPARK_EXECUTOR_MEMORY}" \\
     "${params.SPARK_DRIVER_PORT}" \\
-    "\$MYSQL_HOST" \\
-    "\$MYSQL_USER" \\
-    "\$MYSQL_PASSWORD" \\
+    "\$AWS_REGION" \\
     < /dev/null > ${env.SPARK_LOGS}/scala-spark-job.log 2>&1 &
 
 PID=\$!
@@ -307,6 +326,7 @@ echo \$PID > spark_job.pid
 
 echo "✅ Job started (PID: \$PID)"
 echo "📄 Log file: ${env.SPARK_LOGS}/scala-spark-job.log"
+echo "🔐 MySQL credentials loaded from: dstreambolt/mysql secret"
 
 # Give it a moment to start
 sleep 5
@@ -314,7 +334,7 @@ sleep 5
 # Check if process started successfully
 if ps -p \$PID > /dev/null 2>&1; then
     echo "✅ Job is running successfully"
-    echo "📊 Spark UI: http://\$PRIVATE_IP:8080"
+    echo "📊 Spark Master UI: http://\$PRIVATE_IP:8080"
     echo "📊 Application UI: http://\$PRIVATE_IP:4040"
 else
     echo "❌ Job failed to start"

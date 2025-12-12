@@ -4,12 +4,12 @@ pipeline {
     parameters {
         string(
             name: 'TARGET_IPS',
-            defaultValue: '',
+            defaultValue: '3.109.132.244',
             description: 'Comma-separated list of ingestion server IPs (e.g., 13.201.43.125 or 13.201.43.125,52.66.123.45)'
         )
         string(
             name: 'GIT_BRANCH',
-            defaultValue: 'main',
+            defaultValue: 'release/v1.0.1',
             description: 'Git branch to deploy from'
         )
         string(
@@ -19,7 +19,7 @@ pipeline {
         )
         string(
             name: 'SSH_KEY_PATH',
-            defaultValue: '/home/ubuntu/.ssh/dstreambolt-access-key.pem',
+            defaultValue: '/var/lib/jenkins/.ssh/dstreambolt-access-key.pem',
             description: 'Path to SSH private key on Jenkins server'
         )
         string(
@@ -57,8 +57,8 @@ pipeline {
     environment {
         REPO_URL = 'git@github.com:dstreambolt/dstream_cloud.git'
         SERVICE_NAME = 'dstreambolt-ingest'
-        DEPLOY_PATH = '/opt/dstreambolt/ingestion'
-        BACKUP_PATH = '/opt/dstreambolt/backups'
+        DEPLOY_PATH = '/opt/dstreambolt/ingest'
+        BACKUP_PATH = '/opt/dstreambolt/ingest-backups'
     }
 
     stages {
@@ -299,6 +299,17 @@ ENDIAM
                                         # Extract new version
                                         cd /tmp
                                         sudo tar -xzf ingestion-${GIT_COMMIT_SHORT}.tar.gz -C ${DEPLOY_PATH}
+
+                                        # Install systemd service file
+                                        echo "⚙️  Installing systemd service..."
+                                        if [ -f ${DEPLOY_PATH}/dstreambolt-ingest.service ]; then
+                                            sudo cp ${DEPLOY_PATH}/dstreambolt-ingest.service /etc/systemd/system/
+                                            sudo systemctl daemon-reload
+                                            sudo systemctl enable ${SERVICE_NAME}
+                                            echo "✅ Systemd service file installed and enabled"
+                                        else
+                                            echo "⚠️  Service file not found in deployment package"
+                                        fi
 
                                         # Install dependencies
                                         echo "📥 Installing dependencies..."
