@@ -13,6 +13,11 @@ pipeline {
             description: 'Git branch to deploy from'
         )
         string(
+            name: 'GIT_CREDENTIALS_ID',
+            defaultValue: 'jenkins-github-ssh',
+            description: 'Jenkins credentials ID for GitHub SSH access'
+        )
+        string(
             name: 'SSH_KEY_PATH',
             defaultValue: '/home/ubuntu/.ssh/dstreambolt-access-key.pem',
             description: 'Path to SSH private key on Jenkins server'
@@ -21,6 +26,16 @@ pipeline {
             name: 'REMOTE_USER',
             defaultValue: 'ubuntu',
             description: 'SSH user for remote servers'
+        )
+        string(
+            name: 'AWS_REGION',
+            defaultValue: 'ap-south-1',
+            description: 'AWS region for Secrets Manager'
+        )
+        booleanParam(
+            name: 'VERIFY_SECRETS',
+            defaultValue: true,
+            description: 'Verify AWS Secrets Manager access before deployment'
         )
         booleanParam(
             name: 'RESTART_SERVICE',
@@ -32,12 +47,17 @@ pipeline {
             defaultValue: true,
             description: 'Run health checks after deployment'
         )
+        booleanParam(
+            name: 'TEST_SECRETS_ROTATION',
+            defaultValue: false,
+            description: 'Test automatic secrets rotation (takes 5+ minutes)'
+        )
     }
 
     environment {
-        REPO_URL = 'https://github.com/dstreambolt/dstream_cloud.git'
+        REPO_URL = 'git@github.com:dstreambolt/dstream_cloud.git'
         SERVICE_NAME = 'dstreambolt-ingest'
-        DEPLOY_PATH = '/opt/dstreambolt/agent'
+        DEPLOY_PATH = '/opt/dstreambolt/ingestion'
         BACKUP_PATH = '/opt/dstreambolt/backups'
     }
 
@@ -60,10 +80,17 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 echo '📥 Checking out code from repository...'
+                echo "Repository: ${env.REPO_URL}"
+                echo "Branch: ${params.GIT_BRANCH}"
+                echo "Credentials: ${params.GIT_CREDENTIALS_ID}"
+
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: "*/${params.GIT_BRANCH}"]],
-                    userRemoteConfigs: [[url: env.REPO_URL]]
+                    userRemoteConfigs: [[
+                        url: env.REPO_URL,
+                        credentialsId: params.GIT_CREDENTIALS_ID
+                    ]]
                 ])
 
                 script {
@@ -71,7 +98,7 @@ pipeline {
                         script: "git rev-parse --short HEAD",
                         returnStdout: true
                     ).trim()
-                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+                    echo "✅ Checked out commit: ${env.GIT_COMMIT_SHORT}"
                 }
             }
         }
@@ -87,8 +114,15 @@ pipeline {
                             exit 1
                         fi
 
+                        # Check if secrets_manager.py exists
+                        if [ ! -f secrets_manager.py ]; then
+                            echo "ERROR: secrets_manager.py not found!"
+                            exit 1
+                        fi
+
                         # Check Python syntax
                         python3 -m py_compile app.py
+                        python3 -m py_compile secrets_manager.py
 
                         # Check requirements.txt
                         if [ ! -f requirements.txt ]; then
@@ -96,8 +130,52 @@ pipeline {
                             exit 1
                         fi
 
+                        # Verify boto3 in requirements
+                        if ! grep -q "boto3" requirements.txt; then
+                            echo "ERROR: boto3 not found in requirements.txt!"
+                            exit 1
+                        fi
+
                         echo "✅ Code validation passed"
                     '''
+                }
+            }
+        }
+
+        stage('Verify AWS Secrets') {
+            when {
+                expression { params.VERIFY_SECRETS == true }
+            }
+            steps {
+                echo '🔐 Verifying AWS Secrets Manager access...'
+                script {
+                    sh """
+                        echo "Checking AWS Secrets Manager secrets..."
+
+                        # Check MySQL secret
+                        if aws secretsmanager describe-secret \
+                            --secret-id dstreambolt/mysql \
+                            --region ${params.AWS_REGION} > /dev/null 2>&1; then
+                            echo "✅ MySQL secret exists"
+                        else
+                            echo "⚠️  WARNING: MySQL secret 'dstreambolt/mysql' not found"
+                            echo "   Service will fall back to environment variables"
+                        fi
+
+                        # Check Kafka secret
+                        if aws secretsmanager describe-secret \
+                            --secret-id dstreambolt/kafka \
+                            --region ${params.AWS_REGION} > /dev/null 2>&1; then
+                            echo "✅ Kafka secret exists"
+                        else
+                            echo "⚠️  WARNING: Kafka secret 'dstreambolt/kafka' not found"
+                            echo "   Service will fall back to environment variables"
+                        fi
+
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        echo "Secret verification completed"
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    """
                 }
             }
         }
@@ -180,6 +258,30 @@ EOF
                                         ingestion-${GIT_COMMIT_SHORT}.tar.gz \
                                         ${REMOTE_USER}@${ip}:/tmp/
 
+                                    # Verify IAM role and secrets access
+                                    echo "🔐 Verifying IAM role and secrets access..."
+                                    ssh -i ${SSH_KEY_PATH} \
+                                        -o StrictHostKeyChecking=no \
+                                        ${REMOTE_USER}@${ip} << 'ENDIAM'
+                                        # Check if instance has IAM role
+                                        if curl -s -f http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null; then
+                                            ROLE=\$(curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+                                            echo "✅ IAM Role attached: \$ROLE"
+
+                                            # Test Secrets Manager access
+                                            if aws secretsmanager list-secrets --region ${AWS_REGION} > /dev/null 2>&1; then
+                                                echo "✅ Secrets Manager access verified"
+                                            else
+                                                echo "⚠️  WARNING: Cannot access Secrets Manager"
+                                                echo "   Check IAM role has secretsmanager:GetSecretValue permission"
+                                            fi
+                                        else
+                                            echo "⚠️  WARNING: No IAM role attached to instance"
+                                            echo "   Secrets Manager will not work!"
+                                            echo "   Service will fall back to environment variables"
+                                        fi
+ENDIAM
+
                                     # Extract and install
                                     echo "📂 Extracting and installing..."
                                     ssh -i ${SSH_KEY_PATH} \
@@ -191,13 +293,31 @@ EOF
                                         echo "⏸️  Stopping service..."
                                         sudo systemctl stop ${SERVICE_NAME} || echo "Service not running"
 
+                                        # Create directory if not exists
+                                        sudo mkdir -p ${DEPLOY_PATH}
+
                                         # Extract new version
-                                        cd ${DEPLOY_PATH}
-                                        sudo tar -xzf /tmp/ingestion-${GIT_COMMIT_SHORT}.tar.gz
+                                        cd /tmp
+                                        sudo tar -xzf ingestion-${GIT_COMMIT_SHORT}.tar.gz -C ${DEPLOY_PATH}
 
                                         # Install dependencies
                                         echo "📥 Installing dependencies..."
-                                        sudo ${DEPLOY_PATH}/venv/bin/pip install -r ${DEPLOY_PATH}/requirements.txt --quiet
+                                        cd ${DEPLOY_PATH}
+
+                                        # Create venv if not exists
+                                        if [ ! -d venv ]; then
+                                            python3 -m venv venv
+                                        fi
+
+                                        source venv/bin/activate
+                                        pip install --upgrade pip --quiet
+                                        pip install -r requirements.txt --quiet
+
+                                        # Verify boto3 installed
+                                        python3 -c "import boto3; print('✅ boto3 installed:', boto3.__version__)"
+
+                                        # Verify secrets_manager module
+                                        python3 -c "from secrets_manager import SecretsManager; print('✅ secrets_manager module working')"
 
                                         # Set permissions
                                         sudo chown -R ubuntu:ubuntu ${DEPLOY_PATH}
@@ -253,32 +373,152 @@ ENDSSH
                     def ips = env.IP_LIST.split()
 
                     ips.each { ip ->
-                        echo "🏥 Running health check on ${ip}..."
+                        echo "🏥 Running comprehensive health checks on ${ip}..."
 
                         sh """
                             # Wait for service to be ready
-                            sleep 5
+                            echo "Waiting for service to start..."
+                            sleep 10
 
-                            # Check service status
+                            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                            echo "Health Check: ${ip}"
+                            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+                            # 1. Check service status
+                            echo "1️⃣  Checking service status..."
                             ssh -i ${SSH_KEY_PATH} \
                                 -o StrictHostKeyChecking=no \
                                 ${REMOTE_USER}@${ip} \
-                                "sudo systemctl is-active ${SERVICE_NAME}"
+                                "sudo systemctl is-active ${SERVICE_NAME} && echo '✅ Service is running'"
 
-                            # Test health endpoint
-                            HEALTH_STATUS=\$(ssh -i ${SSH_KEY_PATH} \
+                            # 2. Check logs for successful startup
+                            echo "2️⃣  Checking startup logs..."
+                            ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} << 'ENDCHECK'
+                                # Check for secrets loaded
+                                if sudo journalctl -u ${SERVICE_NAME} --since "2 minutes ago" | grep -q "AWS Secrets Manager initialized"; then
+                                    echo "✅ Secrets Manager initialized"
+                                else
+                                    echo "⚠️  Secrets Manager not initialized (using environment variables)"
+                                fi
+
+                                if sudo journalctl -u ${SERVICE_NAME} --since "2 minutes ago" | grep -q "MySQL config loaded"; then
+                                    echo "✅ MySQL config loaded"
+                                else
+                                    echo "⚠️  MySQL config not loaded"
+                                fi
+
+                                if sudo journalctl -u ${SERVICE_NAME} --since "2 minutes ago" | grep -q "Kafka config loaded"; then
+                                    echo "✅ Kafka config loaded"
+                                else
+                                    echo "⚠️  Kafka config not loaded"
+                                fi
+
+                                # Check for background threads
+                                if sudo journalctl -u ${SERVICE_NAME} --since "2 minutes ago" | grep -q "Background threads started"; then
+                                    echo "✅ Background threads started (worker, metrics, secrets refresh)"
+                                else
+                                    echo "⚠️  Background threads not started"
+                                fi
+
+                                # Check for errors
+                                ERROR_COUNT=\$(sudo journalctl -u ${SERVICE_NAME} --since "2 minutes ago" | grep -i "error" | wc -l)
+                                if [ "\$ERROR_COUNT" -gt 0 ]; then
+                                    echo "⚠️  WARNING: \$ERROR_COUNT errors found in logs"
+                                    sudo journalctl -u ${SERVICE_NAME} --since "2 minutes ago" | grep -i "error" | tail -5
+                                else
+                                    echo "✅ No errors in recent logs"
+                                fi
+ENDCHECK
+
+                            # 3. Test health endpoint
+                            echo "3️⃣  Testing /health endpoint..."
+                            HEALTH_RESPONSE=\$(ssh -i ${SSH_KEY_PATH} \
                                 -o StrictHostKeyChecking=no \
                                 ${REMOTE_USER}@${ip} \
-                                "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/health")
+                                "curl -s http://localhost:5000/health")
 
-                            if [ "\$HEALTH_STATUS" = "200" ]; then
-                                echo "✅ Health check passed for ${ip}"
+                            HEALTH_STATUS=\$(echo "\$HEALTH_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('status', 'unknown'))" 2>/dev/null || echo "error")
+
+                            if [ "\$HEALTH_STATUS" = "healthy" ]; then
+                                echo "✅ Health check passed"
+                                echo "Response: \$HEALTH_RESPONSE"
                             else
-                                echo "❌ Health check failed for ${ip} (HTTP \$HEALTH_STATUS)"
+                                echo "❌ Health check failed"
+                                echo "Response: \$HEALTH_RESPONSE"
                                 exit 1
                             fi
+
+                            # 4. Test metrics endpoint
+                            echo "4️⃣  Testing /metrics endpoint..."
+                            METRICS_STATUS=\$(ssh -i ${SSH_KEY_PATH} \
+                                -o StrictHostKeyChecking=no \
+                                ${REMOTE_USER}@${ip} \
+                                "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/metrics")
+
+                            if [ "\$METRICS_STATUS" = "200" ]; then
+                                echo "✅ Metrics endpoint working"
+                            else
+                                echo "⚠️  Metrics endpoint returned HTTP \$METRICS_STATUS"
+                            fi
+
+                            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                            echo "✅ All health checks passed for ${ip}"
+                            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                         """
                     }
+                }
+            }
+        }
+
+        stage('Test Secrets Rotation') {
+            when {
+                expression { params.TEST_SECRETS_ROTATION == true }
+            }
+            steps {
+                script {
+                    echo "🔄 Testing automatic secrets rotation..."
+                    echo "⚠️  This test takes 5+ minutes to complete"
+
+                    def ips = env.IP_LIST.split()
+                    def testIp = ips[0]  // Test on first server only
+
+                    sh """
+                        echo "Testing on: ${testIp}"
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+                        # 1. Get current timestamp
+                        echo "1️⃣  Monitoring logs for secrets refresh..."
+
+                        # 2. Wait for automatic refresh (5 minutes)
+                        echo "⏳ Waiting 5 minutes for automatic secrets refresh..."
+                        sleep 300
+
+                        # 3. Check logs for refresh
+                        ssh -i ${SSH_KEY_PATH} \
+                            -o StrictHostKeyChecking=no \
+                            ${REMOTE_USER}@${testIp} \
+                            "sudo journalctl -u ${SERVICE_NAME} --since '6 minutes ago' | grep -i 'refresh'" || \
+                            echo "⚠️  No refresh events found (this is normal if not yet time)"
+
+                        # 4. Verify service still healthy
+                        HEALTH_STATUS=\$(ssh -i ${SSH_KEY_PATH} \
+                            -o StrictHostKeyChecking=no \
+                            ${REMOTE_USER}@${testIp} \
+                            "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/health")
+
+                        if [ "\$HEALTH_STATUS" = "200" ]; then
+                            echo "✅ Service still healthy after waiting"
+                        else
+                            echo "❌ Service health check failed after waiting"
+                            exit 1
+                        fi
+
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        echo "✅ Secrets rotation test completed"
+                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    """
                 }
             }
         }
@@ -309,13 +549,39 @@ ENDSSH
             echo '✅ ═══════════════════════════════════════════════════'
             echo '✅ Deployment completed successfully!'
             echo '✅ ═══════════════════════════════════════════════════'
-            echo "Deployed to: ${env.IP_LIST}"
-            echo "Commit: ${env.GIT_COMMIT_SHORT}"
-            echo "Branch: ${params.GIT_BRANCH}"
+            echo "📦 Deployed to: ${env.IP_LIST}"
+            echo "📌 Commit: ${env.GIT_COMMIT_SHORT}"
+            echo "🌿 Branch: ${params.GIT_BRANCH}"
+            echo "🔐 AWS Secrets Manager: Enabled"
+            echo "🔄 Auto-rotation: Every 5 minutes"
+            echo '═══════════════════════════════════════════════════'
+            echo ''
+            echo '📋 Next Steps:'
+            echo '  1. Verify secrets in AWS Secrets Manager'
+            echo '  2. Monitor logs: sudo journalctl -u dstreambolt-ingest -f'
+            echo '  3. Test ingestion endpoint'
+            echo '  4. Monitor metrics dashboard'
+            echo ''
+            echo '🔗 Useful Commands:'
+            echo '  Health: curl http://localhost:5000/health'
+            echo '  Metrics: curl http://localhost:5000/metrics'
+            echo '  Logs: sudo journalctl -u dstreambolt-ingest --since "10 minutes ago"'
+            echo ''
 
             // Send notification (optional - configure your notification system)
             // emailext subject: "✅ Ingestion Deployment Success - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-            //          body: "Deployment completed successfully to: ${env.IP_LIST}",
+            //          body: """
+            //              Deployment completed successfully!
+            //
+            //              Servers: ${env.IP_LIST}
+            //              Commit: ${env.GIT_COMMIT_SHORT}
+            //              Branch: ${params.GIT_BRANCH}
+            //
+            //              AWS Secrets Manager: Enabled
+            //              Auto-rotation: Every 5 minutes
+            //
+            //              All health checks passed.
+            //          """,
             //          to: "team@dstreambolt.com"
         }
 

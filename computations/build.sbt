@@ -12,7 +12,9 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0" % "provided",
   "org.apache.kafka" % "kafka-clients" % "3.6.1" % "provided",
   "com.mysql" % "mysql-connector-j" % "8.2.0",
-  "com.github.scopt" %% "scopt" % "4.1.0"
+  "com.github.scopt" %% "scopt" % "4.1.0",
+  "software.amazon.awssdk" % "secretsmanager" % "2.20.0",
+  "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.15.0"
 )
 
 // Assembly settings for fat jar

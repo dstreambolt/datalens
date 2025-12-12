@@ -460,8 +460,10 @@ object SparkProcessor {
     spark.sparkContext.setLogLevel("WARN")
 
     try {
-      // Build MySQL config if provided
+      // Build MySQL config - try Secrets Manager first, then command line args
       val mysqlConfig = if (config.mysqlHost.isDefined && config.mysqlUser.isDefined && config.mysqlPassword.isDefined) {
+        // Use command line args if provided
+        println("📋 Using MySQL config from command line arguments")
         Some(Map(
           "host" -> config.mysqlHost.get,
           "user" -> config.mysqlUser.get,
@@ -470,7 +472,23 @@ object SparkProcessor {
           "table" -> config.mysqlTable
         ))
       } else {
-        None
+        // Try to load from AWS Secrets Manager
+        println("🔐 Attempting to load MySQL config from AWS Secrets Manager...")
+        SecretsManagerUtil.getMySQLConfig() match {
+          case scala.util.Success(secretsConfig) =>
+            println("✅ MySQL config loaded from Secrets Manager")
+            Some(Map(
+              "host" -> secretsConfig("host"),
+              "user" -> secretsConfig("user"),
+              "password" -> secretsConfig("password"),
+              "database" -> secretsConfig.getOrElse("database", config.mysqlDatabase),
+              "table" -> config.mysqlTable
+            ))
+          case scala.util.Failure(e) =>
+            println(s"⚠️  Failed to load MySQL config from Secrets Manager: ${e.getMessage}")
+            println("   Continuing without MySQL sink...")
+            None
+        }
       }
 
       config.mode match {

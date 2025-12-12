@@ -1,0 +1,295 @@
+#!/usr/bin/env groovy
+
+/**
+ * DStreamBolt Continuous Log Sender
+ * Generates and sends log data to ingestion endpoint continuously
+ */
+
+properties([
+    parameters([
+        string(
+            name: 'INGESTION_URL',
+            defaultValue: 'https://dstreambolt-alb-841612552.ap-south-1.elb.amazonaws.com/ingest',
+            description: 'Ingestion endpoint URL',
+            trim: true
+        ),
+        string(
+            name: 'INTERVAL',
+            defaultValue: '30',
+            description: 'Interval in seconds between batches',
+            trim: true
+        ),
+        string(
+            name: 'BATCH_SIZE',
+            defaultValue: '1000',
+            description: 'Number of log lines per batch',
+            trim: true
+        ),
+        booleanParam(
+            name: 'VERIFY_SSL',
+            defaultValue: false,
+            description: 'Enable SSL certificate verification'
+        ),
+        string(
+            name: 'MAX_BATCHES',
+            defaultValue: '0',
+            description: 'Maximum number of batches (0 = unlimited)',
+            trim: true
+        )
+    ]),
+    disableConcurrentBuilds(),
+    buildDiscarder(logRotator(daysToKeepStr: '30', numToKeepStr: '50'))
+])
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                    echo '🚀 DStreamBolt Continuous Log Generator'
+                    echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                    echo ''
+                    echo "Configuration:"
+                    echo "  Endpoint:     ${params.INGESTION_URL}"
+                    echo "  Interval:     ${params.INTERVAL} seconds"
+                    echo "  Batch Size:   ${params.BATCH_SIZE} logs"
+                    echo "  SSL Verify:   ${params.VERIFY_SSL}"
+                    echo "  Max Batches:  ${params.MAX_BATCHES == '0' ? 'Unlimited' : params.MAX_BATCHES}"
+                    echo ''
+                    echo '⚠️  This job will run continuously until manually stopped!'
+                    echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    sh '''
+                        pip3 install --user --quiet requests urllib3 2>/dev/null || true
+                        echo "✅ Dependencies ready"
+                    '''
+                }
+            }
+        }
+
+        stage('Run Log Generator') {
+            steps {
+                script {
+                    // Process parameters with defaults
+                    def ingestionUrl = params.INGESTION_URL ?: 'https://dstreambolt-alb-841612552.ap-south-1.elb.amazonaws.com/ingest'
+                    def interval = params.INTERVAL ?: '30'
+                    def batchSize = params.BATCH_SIZE ?: '1000'
+                    def verifySsl = params.VERIFY_SSL != null ? params.VERIFY_SSL : false
+                    def maxBatches = params.MAX_BATCHES ?: '0'
+
+                    // Validate integer parameters
+                    try {
+                        Integer.parseInt(interval)
+                    } catch (Exception e) {
+                        interval = '30'
+                    }
+
+                    try {
+                        Integer.parseInt(batchSize)
+                    } catch (Exception e) {
+                        batchSize = '1000'
+                    }
+
+                    try {
+                        Integer.parseInt(maxBatches)
+                    } catch (Exception e) {
+                        maxBatches = '0'
+                    }
+
+                    echo "Validated Parameters:"
+                    echo "  URL: ${ingestionUrl}"
+                    echo "  Interval: ${interval}"
+                    echo "  Batch Size: ${batchSize}"
+                    echo "  SSL Verify: ${verifySsl}"
+                    echo "  Max Batches: ${maxBatches}"
+                    echo ""
+
+                    // Create Python script
+                    def pythonScript = """#!/usr/bin/env python3
+import time
+import random
+import gzip
+import json
+import sys
+from datetime import datetime
+import requests
+from io import BytesIO
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+class LogGenerator:
+    def __init__(self):
+        self.ips = [f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}" for _ in range(100)]
+        self.endpoints = ["/api/v1/users", "/api/v1/products", "/api/v1/orders", "/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/inventory", "/api/v1/analytics", "/api/v2/search", "/health", "/metrics", "/api/v1/payments", "/api/v1/shipping", "/api/v1/returns", "/api/v1/reviews", "/api/v1/wishlist", "/api/v1/cart"]
+        self.methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+        self.user_agents = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15", "python-requests/2.26.0", "okhttp/4.9.0", "Apache-HttpClient/4.5.13"]
+        self.referers = ["https://app.example.com/dashboard", "https://app.example.com/products", "https://app.example.com/api/v1/orders", "https://app.example.com/api/v1/analytics", "https://app.example.com/api/v1/inventory", "-"]
+        self.status_distribution = {200: 85, 201: 5, 204: 2, 400: 3, 401: 2, 404: 2, 500: 1}
+
+    def generate_log_line(self):
+        ip = random.choice(self.ips)
+        timestamp = datetime.now().strftime("%d/%b/%Y:%H:%M:%S +0000")
+        method = random.choice(self.methods)
+        endpoint = random.choice(self.endpoints)
+        status = random.choices(list(self.status_distribution.keys()), weights=list(self.status_distribution.values()))[0]
+        size = random.randint(200, 5000)
+        referer = random.choice(self.referers)
+        user_agent = random.choice(self.user_agents)
+        response_time = round(random.uniform(0.05, 2.5), 3)
+        return f'{ip} - - [{timestamp}] "{method} {endpoint} HTTP/1.1" {status} {size} "{referer}" "{user_agent}" {response_time}'
+
+    def generate_batch(self, count=1000):
+        return [self.generate_log_line() for _ in range(count)]
+
+class IngestClient:
+    def __init__(self, url, verify_ssl=True):
+        self.url = url
+        self.verify_ssl = verify_ssl
+        self.session = requests.Session()
+
+    def send_logs(self, log_lines):
+        try:
+            log_data = "\\n".join(log_lines)
+            buffer = BytesIO()
+            with gzip.GzipFile(fileobj=buffer, mode='wb') as gz:
+                gz.write(log_data.encode('utf-8'))
+            compressed_data = buffer.getvalue()
+
+            headers = {'Content-Type': 'application/gzip', 'Content-Encoding': 'gzip', 'User-Agent': 'DStreamBolt-LogGenerator/1.0'}
+            start_time = time.time()
+            response = self.session.post(self.url, data=compressed_data, headers=headers, verify=self.verify_ssl, timeout=30)
+            elapsed = time.time() - start_time
+
+            response_text = response.text[:500] if response.text else ''
+            try:
+                response_json = response.json()
+                response_text = json.dumps(response_json, indent=2)[:500]
+            except:
+                pass
+
+            return {'success': response.status_code == 201, 'status_code': response.status_code, 'elapsed': elapsed, 'compressed_size': len(compressed_data), 'original_size': len(log_data), 'compression_ratio': len(log_data) / len(compressed_data) if compressed_data else 0, 'response': response_text}
+        except Exception as e:
+            return {'success': False, 'error': str(e), 'error_type': type(e).__name__}
+
+url = "${ingestionUrl}"
+interval = int("${interval}")
+batch_size = int("${batchSize}")
+verify_ssl = "${verifySsl}".lower() == "true"
+max_batches = int("${maxBatches}")
+
+print("Starting continuous log generation...")
+print(f"URL: {url}")
+print(f"Interval: {interval}s, Batch: {batch_size}, SSL: {verify_ssl}, Max: {max_batches or 'Unlimited'}")
+print()
+
+generator = LogGenerator()
+client = IngestClient(url, verify_ssl=verify_ssl)
+batch_count = 0
+total_logs = 0
+total_success = 0
+total_failed = 0
+
+try:
+    while True:
+        batch_count += 1
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] 📝 Generating batch #{batch_count} ({batch_size} logs)... ", end='')
+        log_lines = generator.generate_batch(batch_size)
+        print("✅")
+
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] 📤 Sending to ingestion endpoint... ", end='')
+        result = client.send_logs(log_lines)
+
+        if result['success']:
+            total_logs += batch_size
+            total_success += 1
+            print(f"✅ {result['status_code']}")
+            print(f"    ├─ Size: {result['original_size']:,} bytes → {result['compressed_size']:,} bytes (ratio: {result['compression_ratio']:.2f}x)")
+            print(f"    ├─ Time: {result['elapsed']:.2f}s")
+            print(f"    └─ Total: {total_logs:,} logs sent, {total_success} batches successful")
+        else:
+            total_failed += 1
+            print(f"❌ FAILED")
+            if 'status_code' in result:
+                print(f"    ├─ Status: {result['status_code']}")
+                print(f"    └─ Response: {result['response']}")
+            else:
+                print(f"    └─ Error: {result.get('error', 'Unknown error')}")
+            print(f"    Total failures: {total_failed}")
+
+        print()
+
+        if max_batches > 0 and batch_count >= max_batches:
+            print(f"✅ Reached maximum batches ({max_batches}). Stopping.")
+            break
+
+        print(f"⏳ Waiting {interval} seconds until next batch...\\n")
+        time.sleep(interval)
+
+except KeyboardInterrupt:
+    print("\\n\\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("⛔ Stopped by user")
+except Exception as e:
+    print(f"\\n❌ Error: {e}")
+finally:
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(f"\\n📊 Final Statistics:")
+    print(f"  Total Batches:  {batch_count}")
+    print(f"  Total Logs:     {total_logs:,}")
+    print(f"  Successful:     {total_success}")
+    print(f"  Failed:         {total_failed}")
+    if batch_count > 0:
+        print(f"  Success Rate:   {(total_success * 100 / batch_count):.1f}%")
+    print()
+"""
+
+                    // Write script to file and execute
+                    def scriptFile = "/tmp/log_generator_${env.BUILD_NUMBER}.py"
+                    writeFile file: scriptFile, text: pythonScript
+
+                    sh """
+                        chmod +x ${scriptFile}
+                        python3 ${scriptFile}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '✅ Log Generator Completed Successfully'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+        }
+
+        aborted {
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '⛔ Log Generator Stopped by User'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+        }
+
+        failure {
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '❌ Log Generator Failed'
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+        }
+
+        cleanup {
+            sh "rm -f /tmp/log_generator_${env.BUILD_NUMBER}.py || true"
+        }
+    }
+}
+

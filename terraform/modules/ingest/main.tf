@@ -18,15 +18,11 @@ resource "aws_instance" "ingest" {
   iam_instance_profile        = var.iam_instance_profile
   user_data_replace_on_change = true
 
-  user_data = replace(
-    replace(
-      file("${path.root}/user_data/ingest.sh"),
-      "MYSQL_HOST_PLACEHOLDER",
-      var.mysql_host
-    ),
-    "KAFKA_BROKER_PLACEHOLDER",
-    var.kafka_broker
-  )
+  user_data = templatefile("${path.root}/user_data/ingest.sh", {
+    mysql_host     = var.mysql_host
+    mysql_password = var.mysql_password
+    kafka_broker   = var.kafka_broker
+  })
 
   tags = { Name = "${var.project_name}-ingest" }
 }
