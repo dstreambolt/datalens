@@ -34,37 +34,11 @@ cp /opt/dstreambolt/ingest/app.py /opt/dstreambolt/ingest/app.py.backup.$(date +
 # Fix the code (replace updated_at with correct approach)
 echo "3️⃣  Applying fix to app.py..."
 
-# Create the fixed version
-cat > /tmp/fix_metrics.py << 'PYTHON_EOF'
-import sys
-import re
+# Use sed to fix the issues directly
+sed -i 's/metric_value, updated_at)/metric_value)/g' /opt/dstreambolt/ingest/app.py
+sed -i 's/metric_value = %s, updated_at = NOW()/metric_value = %s/g' /opt/dstreambolt/ingest/app.py
 
-# Read the file
-with open('/opt/dstreambolt/ingest/app.py', 'r') as f:
-    content = f.read()
-
-# Pattern 1: Fix INSERT with updated_at
-content = re.sub(
-    r'INSERT INTO ingestion_realtime_metrics \(metric_name, metric_value, updated_at\)',
-    'INSERT INTO ingestion_realtime_metrics (metric_name, metric_value)',
-    content
-)
-
-# Pattern 2: Fix ON DUPLICATE KEY UPDATE with updated_at
-content = re.sub(
-    r'ON DUPLICATE KEY UPDATE metric_value = %s, updated_at = NOW\(\)',
-    'ON DUPLICATE KEY UPDATE metric_value = %s',
-    content
-)
-
-# Write back
-with open('/opt/dstreambolt/ingest/app.py', 'w') as f:
-    f.write(content)
-
-print("✅ Fixed app.py")
-PYTHON_EOF
-
-python3 /tmp/fix_metrics.py
+echo "✅ Fixed app.py"
 
 # Verify the fix
 echo "4️⃣  Verifying fix..."

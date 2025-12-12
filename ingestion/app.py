@@ -1175,8 +1175,11 @@ if MTLS_ENABLED:
 else:
     print("⚠️  mTLS authentication disabled - running in open mode")
 
-# Start background threads when running with Gunicorn or Flask
-if os.getenv('WERKZEUG_RUN_MAIN') != 'true' or __name__ != '__main__':
+# Gunicorn worker initialization hook
+def post_worker_init(worker):
+    """Called after a worker process is forked - start threads here"""
+    print(f"🔄 Initializing worker {worker.pid}...")
+
     # Start worker thread
     worker_thread = threading.Thread(target=process_bundle_worker, daemon=True)
     worker_thread.start()
@@ -1186,6 +1189,25 @@ if os.getenv('WERKZEUG_RUN_MAIN') != 'true' or __name__ != '__main__':
     metrics_thread.start()
 
     # Start secrets refresh thread
+    secrets_thread = threading.Thread(target=secrets_refresh_worker, daemon=True)
+    secrets_thread.start()
+
+    print(f"✅ Worker {worker.pid} initialized with background threads")
+
+
+# Start background threads only when NOT running under Gunicorn
+# (Gunicorn will call post_worker_init for each worker)
+if __name__ == '__main__' or os.getenv('WERKZEUG_RUN_MAIN') == 'true':
+    # Development mode - start threads immediately
+    print("🔄 Starting background worker thread...")
+    worker_thread = threading.Thread(target=process_bundle_worker, daemon=True)
+    worker_thread.start()
+
+    print("📊 Starting metrics flusher (interval: 10s)...")
+    metrics_thread = threading.Thread(target=metrics_flusher_worker, daemon=True)
+    metrics_thread.start()
+
+    print("🔐 Starting secrets refresh worker (interval: 1440s)...")
     secrets_thread = threading.Thread(target=secrets_refresh_worker, daemon=True)
     secrets_thread.start()
 
