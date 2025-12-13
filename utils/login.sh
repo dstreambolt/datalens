@@ -1,4 +1,6 @@
 #!/bin/bash
+# Ensure we are in a valid directory
+cd "$HOME" || exit 1
 
 ###############################################################################
 # SSH Login Helper for DStreamBolt Infrastructure
