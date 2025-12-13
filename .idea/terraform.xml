@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="TerraformProjectSettings">
+    <option name="ignoredTemplateCandidatePaths">
+      <set>
+        <option value="file://$PROJECT_DIR$/terraform/user_data/ingest.sh" />
+        <option value="file://$PROJECT_DIR$/terraform/user_data/spark_executor.sh" />
+      </set>
+    </option>
+  </component>
+</project>
