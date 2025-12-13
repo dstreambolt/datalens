@@ -1,0 +1,16 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Python
+venv/
+.env
+__pycache__/
+
+# Build artifacts
+target/
+*.jar
+
+# OS
+.DS_Store
