@@ -1,6 +1,67 @@
 # DStreamBolt Platform
 
-Production-ready, cost-effective infrastructure for real-time data ingestion, processing, and monitoring.
+Production-ready, cost-effective infrastructure for real-time data ingestion, processing, and monitoring built on AWS.
+
+## 📚 Documentation
+
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Complete system architecture, data flow, and design decisions (with diagrams!)
+- **[OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md)** - Daily operations, troubleshooting, and maintenance procedures
+- **[SETUP_GUIDE.md](./setup_scripts/README.md)** - Step-by-step installation and deployment guide
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# 1. Clone repository
+git clone https://github.com/dstreambolt/dstream_cloud.git
+cd dstream_cloud
+
+# 2. Deploy infrastructure
+cd terraform
+./deploy.sh
+
+# 3. Setup all services
+cd ../setup_scripts
+./setup_all.sh
+
+# 4. Test the pipeline
+cd ../examples
+python3 02-send-to-ingest.py --alb-url <your-alb-url> --file logs/access.log
+
+# 5. View results
+open http://<devops-ip>:3000/grafana  # Grafana dashboards
+```
+
+**Total Setup Time:** ~45 minutes
+
+---
+
+## 🏗️ High-Level Architecture
+
+```
+External Clients (mTLS)
+         │
+         ▼
+┌─────────────────┐
+│ Application     │  HTTPS/443
+│ Load Balancer   │
+└────────┬────────┘
+         │
+    ┌────┴────┬──────────┬──────────┐
+    ▼         ▼          ▼          ▼
+┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+│Ingest  │ │DevOps  │ │ Spark  │ │Grafana │
+│Service │ │Jenkins │ │Cluster │ │MySQL   │
+└───┬────┘ └────────┘ └────┬───┘ └────────┘
+    │                      │
+    └──────► Kafka ◄───────┘
+         (Message Queue)
+```
+
+**See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed architecture diagrams and explanations.**
+
+---
 
 ## 📁 Repository Structure
 

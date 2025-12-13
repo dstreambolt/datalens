@@ -1,344 +1,401 @@
 # DStreamBolt Quick Reference
 
-Essential commands and operations for DStreamBolt platform.
+## 🎯 System At-a-Glance
 
-## 🚀 Deployment
+### Infrastructure Components
 
-```bash
-# Initialize Terraform
-cd terraform && terraform init
+| Component | Instance Type | Public IP | Private IP | Role |
+|-----------|---------------|-----------|------------|------|
+| **Ingestion** | t3.small | 13.232.206.53 | 10.0.1.x | Accept and queue log bundles |
+| **DevOps** | t3.small | 13.235.238.208 | 10.0.1.x | Jenkins, Grafana, MySQL, AKHQ |
+| **Kafka** | t3.small | - | 10.0.10.248 | Message broker |
+| **Spark Master** | t3.small | 52.66.171.95 | 10.0.1.x | Cluster manager, job scheduler |
+| **Spark Executor** | t3.small | 65.0.74.255 | 10.0.1.x | Task execution, processing |
 
-# Plan infrastructure
-terraform plan -out=tfplan
+### Service Ports
 
-# Apply changes
-terraform apply tfplan
+| Service | Port | Protocol | Access |
+|---------|------|----------|--------|
+| Ingestion API | 5000 | HTTP | Internal (via ALB) |
+| Kafka | 9092 | TCP | Private subnet only |
+| Zookeeper | 2181 | TCP | Private subnet only |
+| MySQL | 3306 | TCP | Private subnet only |
+| Spark Master | 7077 | TCP | Cluster communication |
+| Spark Master UI | 8080 | HTTP | Public (view-only) |
+| Spark Worker UI | 8081 | HTTP | Public (view-only) |
+| Jenkins | 8081 | HTTP | Public (ALB) |
+| Grafana | 3000 | HTTP | Public (ALB) |
+| AKHQ | 8080 | HTTP | Public (ALB) |
 
-# Get outputs
-terraform output
-```
+---
 
-## 🔑 Access Services
+## 🔑 Access Credentials
 
-```bash
-# Get instance IPs
-cd terraform
-DEVOPS_IP=$(terraform output -raw devops_ip)
-INGEST_IP=$(terraform output -raw ingest_ip)
-SPARK_IP=$(terraform output -raw spark_master_ip)
-KAFKA_IP=$(terraform output -raw kafka_ip)
-
-# SSH to instances
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$DEVOPS_IP
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$INGEST_IP
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$SPARK_IP
-```
-
-## 📊 Service URLs
+### Default Passwords
 
 ```bash
 # Jenkins
-http://$DEVOPS_IP/jenkins
-# Login: admin / (see /var/lib/jenkins/secrets/initialAdminPassword)
+Username: admin
+Password: (check /var/lib/jenkins/secrets/initialAdminPassword on first login)
 
-# Grafana  
-http://$DEVOPS_IP/grafana
-# Login: admin / DStreamBolt2025!
+# Grafana
+Username: admin
+Password: DStreamBolt2025!
 
-# AKHQ (Kafka Manager)
-http://$DEVOPS_IP/kafkamgr
-# No authentication required
+# AKHQ (Kafka UI)
+Username: admin
+Password: DStreamBolt2025!
 
-# Spark Master UI
-http://$SPARK_IP:8080
-
-# Spark Worker UI
-http://$SPARK_IP:8081
+# MySQL
+Username: root
+Password: DStreamBolt2025!
+Database: dstreambolt_metrics
 ```
 
-## 🔍 Check Service Status
+### SSH Access
 
 ```bash
-# On DevOps node
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$DEVOPS_IP
-sudo systemctl status jenkins grafana-server nginx akhq mysql
+# DevOps Node
+ssh -i ~/dstreambolt-access-key.pem ubuntu@13.235.238.208
 
-# On Ingestion node
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$INGEST_IP
-sudo systemctl status dstreambolt-ingest
+# Ingestion Node
+ssh -i ~/dstreambolt-access-key.pem ubuntu@13.232.206.53
 
-# On Kafka node
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$KAFKA_IP
-sudo systemctl status kafka zookeeper
+# Spark Master
+ssh -i ~/dstreambolt-access-key.pem ubuntu@52.66.171.95
 
-# On Spark node
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$SPARK_IP
-sudo systemctl status spark-master spark-worker
-```
+# Spark Executor
+ssh -i ~/dstreambolt-access-key.pem ubuntu@65.0.74.255
 
-## 📝 View Logs
-
-```bash
-# Ingestion logs
-sudo journalctl -u dstreambolt-ingest -f
-
-# Kafka logs
-sudo journalctl -u kafka -f
-
-# Spark logs
-tail -f /opt/spark/logs/spark-*.out
-
-# Jenkins logs
-sudo journalctl -u jenkins -f
-
-# Grafana logs
-sudo journalctl -u grafana-server -f
-```
-
-## 🔄 Restart Services
-
-```bash
-# Restart ingestion service
-sudo systemctl restart dstreambolt-ingest
-
-# Restart Kafka
-sudo systemctl restart kafka
-
-# Restart Spark (stop and start new job)
-pkill -f SparkProcessor
-cd /opt/dstreambolt/computations && ./submit_job.sh
-
-# Restart Jenkins
-sudo systemctl restart jenkins
-
-# Restart Grafana
-sudo systemctl restart grafana-server
-
-# Restart AKHQ
-sudo systemctl restart akhq
-```
-
-## 📤 Send Test Logs
-
-```bash
-cd examples
-
-# Generate test logs
-python3 01-generate-logs.py --lines 1000 --output logs/test.log
-
-# Send to ingestion (with mTLS)
-python3 02-send-to-ingest.py \
-  --alb-url https://$(cd ../terraform && terraform output -raw alb_dns)/ingest \
-  --cert ../certs/client/client-cert.pem \
-  --key ../certs/client/client-key.pem \
-  --ca-cert ../certs/ca/ca-cert.pem \
-  logs/test.log
-```
-
-## 🗄️ MySQL Operations
-
-```bash
-# Connect to MySQL
-mysql -h $DEVOPS_IP -u root -p
-# Password is in AWS Secrets Manager: dstreambolt/mysql
-
-# View metrics
-USE dstreambolt_metrics;
-
-# Ingestion metrics
-SELECT * FROM ingestion_metrics ORDER BY timestamp DESC LIMIT 10;
-
-# Endpoint summary
-SELECT * FROM endpoint_summary ORDER BY window_start DESC LIMIT 10;
-
-# Status summary
-SELECT * FROM status_summary ORDER BY window_start DESC LIMIT 10;
-
-# Kafka metrics
-SELECT * FROM kafka_metrics ORDER BY timestamp DESC LIMIT 10;
-```
-
-## 🔐 AKHQ Credentials Setup
-
-```bash
-# Copy script to DevOps node
-scp -i ~/dstreambolt-access-key.pem \
-  utils/set_akhq_credentials.sh \
-  ubuntu@$DEVOPS_IP:/tmp/
-
-# SSH and run
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$DEVOPS_IP
-sudo bash /tmp/set_akhq_credentials.sh
-```
-
-## 🚀 Deploy via Jenkins
-
-### Deploy Ingestion Service
-
-1. Go to Jenkins: `http://$DEVOPS_IP/jenkins`
-2. Job: **DStreamBolt-Deploy-Ingestion**
-3. Parameters:
-   - Git Branch: `release/v1.0.0`
-   - Target IPs: (ingestion node IP)
-4. Build
-
-### Deploy Spark Jobs
-
-1. Go to Jenkins: `http://$DEVOPS_IP/jenkins`
-2. Job: **DStreamBolt-Deploy-Spark-Scala**
-3. Parameters:
-   - Git Branch: `release/v1.0.1`
-   - Spark Master IPs: (spark master IP)
-   - Kafka Broker: `10.0.10.248:9092`
-4. Build
-
-## 🧪 Test Kafka
-
-```bash
-# List topics (on DevOps node via AKHQ)
-http://$DEVOPS_IP/kafkamgr
-
-# Or SSH to Kafka node
-ssh -i ~/dstreambolt-access-key.pem ubuntu@$KAFKA_IP
-
-# List topics
-/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
-
-# Consume messages
-/opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 \
-  --topic dstreambolt-logs \
-  --from-beginning \
-  --max-messages 10
-```
-
-## 🛑 Emergency Operations
-
-### Stop All Processing
-
-```bash
-# Stop ingestion
-ssh ubuntu@$INGEST_IP 'sudo systemctl stop dstreambolt-ingest'
-
-# Stop Spark jobs
-ssh ubuntu@$SPARK_IP 'pkill -f SparkProcessor'
-
-# Kafka will continue buffering messages
-```
-
-### Start All Processing
-
-```bash
-# Start ingestion
-ssh ubuntu@$INGEST_IP 'sudo systemctl start dstreambolt-ingest'
-
-# Start Spark job
-ssh ubuntu@$SPARK_IP 'cd /opt/dstreambolt/computations && ./submit_job.sh'
-```
-
-### Clear Kafka Topic
-
-```bash
-ssh ubuntu@$KAFKA_IP
-
-# Delete and recreate topic
-/opt/kafka/bin/kafka-topics.sh --delete \
-  --topic dstreambolt-logs \
-  --bootstrap-server localhost:9092
-
-/opt/kafka/bin/kafka-topics.sh --create \
-  --topic dstreambolt-logs \
-  --bootstrap-server localhost:9092 \
-  --partitions 3 \
-  --replication-factor 1
-```
-
-## 💡 Troubleshooting
-
-### Ingestion Not Receiving Logs
-
-```bash
-# Check service
-sudo systemctl status dstreambolt-ingest
-
-# Check logs
-sudo journalctl -u dstreambolt-ingest -n 100 --no-pager
-
-# Test health endpoint
-curl http://localhost:5000/health
-
-# Check Kafka connectivity
-nc -zv $KAFKA_IP 9092
-```
-
-### Spark Not Processing
-
-```bash
-# Check Spark Master UI
-open http://$SPARK_IP:8080
-
-# Check logs
-tail -100 /opt/spark/logs/spark-*.out
-
-# Check if job is running
-ps aux | grep SparkProcessor
-
-# Check Kafka connectivity
-nc -zv $KAFKA_IP 9092
-```
-
-### Kafka Issues
-
-```bash
-# Check service
-sudo systemctl status kafka zookeeper
-
-# Check logs
-sudo journalctl -u kafka -n 100 --no-pager
-
-# Check disk space
-df -h
-
-# Check if listening
-netstat -tulpn | grep 9092
-```
-
-## 📋 Useful Commands
-
-```bash
-# Get all service URLs
-cd terraform && terraform output
-
-# Get AWS Secrets
-aws secretsmanager get-secret-value \
-  --secret-id dstreambolt/mysql \
-  --region ap-south-1 \
-  --query SecretString \
-  --output text
-
-# Check all running processes
-ps aux | grep -E "java|python|gunicorn|spark"
-
-# Check open ports
-sudo netstat -tulpn | grep LISTEN
-
-# Check disk usage
-df -h
-du -sh /opt/*
-
-# Check memory
-free -h
-
-# Check system load
-uptime
+# Kafka (via bastion)
+ssh -i ~/dstreambolt-access-key.pem -J ubuntu@13.235.238.208 ubuntu@10.0.10.248
 ```
 
 ---
 
-**For more detailed documentation, see:**
-- [README.md](README.md) - Full platform documentation
-- [SECRETS_MANAGEMENT.md](SECRETS_MANAGEMENT.md) - AWS Secrets Manager guide
-- [ingestion/README.md](ingestion/README.md) - Ingestion service details
-- [computations/README.md](computations/README.md) - Spark jobs documentation
-- [jenkins/README.md](jenkins/README.md) - CI/CD pipelines
+## 📊 Data Flow Summary
+
+```
+1. Client sends gzipped log bundle
+   │
+   ├─► POST https://dstreambolt.click/ingest
+   │
+   ▼
+2. Ingestion Service
+   │
+   ├─► Verifies mTLS certificate
+   ├─► Returns 201 Accepted immediately
+   ├─► Writes to disk queue
+   │
+   ▼
+3. Background Worker
+   │
+   ├─► Decompresses bundle
+   ├─► Parses JSON log lines
+   ├─► Produces to Kafka topic
+   │
+   ▼
+4. Kafka Topic: dstreambolt-logs
+   │
+   ├─► 3 partitions
+   ├─► 7-day retention
+   │
+   ▼
+5. Spark Streaming Consumer
+   │
+   ├─► 30-second windows
+   ├─► Aggregates metrics
+   ├─► Calculates statistics
+   │
+   ▼
+6. MySQL Database
+   │
+   ├─► endpoint_summary table
+   ├─► status_summary table
+   ├─► ingest_metrics table
+   │
+   ▼
+7. Grafana Dashboards
+   │
+   └─► Visualizations
+```
+
+---
+
+## 🔍 Quick Health Checks
+
+### One-Liner Health Check
+
+```bash
+# Check all services at once
+for service in ingestion kafka spark mysql grafana jenkins; do
+  echo "=== $service ==="
+  case $service in
+    ingestion)
+      curl -s https://dstreambolt.click/health | jq '.kafka'
+      ;;
+    kafka)
+      ssh -J ubuntu@13.235.238.208 ubuntu@10.0.10.248 \
+        'systemctl is-active kafka' 2>/dev/null
+      ;;
+    spark)
+      curl -s http://52.66.171.95:8080/json/ | jq -r '.status'
+      ;;
+    mysql)
+      ssh ubuntu@13.235.238.208 \
+        'mysql -u root -pDStreamBolt2025! -e "SELECT 1" 2>/dev/null && echo "UP" || echo "DOWN"'
+      ;;
+    grafana)
+      curl -s -o /dev/null -w "%{http_code}" http://13.235.238.208:3000/grafana/
+      ;;
+    jenkins)
+      curl -s -o /dev/null -w "%{http_code}" http://13.235.238.208:8081/
+      ;;
+  esac
+done
+```
+
+### Individual Service Checks
+
+```bash
+# Ingestion Service
+curl https://dstreambolt.click/health
+
+# Kafka Topics
+ssh -J ubuntu@13.235.238.208 ubuntu@10.0.10.248 \
+  '/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092'
+
+# Spark Jobs
+curl http://52.66.171.95:8080/json/ | jq '.activeapps'
+
+# MySQL Tables
+ssh ubuntu@13.235.238.208 \
+  'mysql -u root -pDStreamBolt2025! -e "SHOW TABLES FROM dstreambolt_metrics;"'
+
+# Grafana Datasource
+curl -u admin:DStreamBolt2025! http://13.235.238.208:3000/api/datasources
+
+# Jenkins Jobs
+curl -s http://13.235.238.208:8081/api/json | jq '.jobs[].name'
+```
+
+---
+
+## 🚀 Common Operations
+
+### Restart Services
+
+```bash
+# Ingestion
+ssh ubuntu@13.232.206.53 'sudo systemctl restart dstreambolt-ingest'
+
+# Kafka
+ssh -J ubuntu@13.235.238.208 ubuntu@10.0.10.248 \
+  'sudo systemctl restart kafka'
+
+# Spark Job
+ssh ubuntu@52.66.171.95 '
+  pkill -f spark_processor
+  cd /opt/dstreambolt/computations && ./submit_job.sh
+'
+
+# Jenkins
+ssh ubuntu@13.235.238.208 'sudo systemctl restart jenkins'
+
+# Grafana
+ssh ubuntu@13.235.238.208 'sudo systemctl restart grafana-server'
+
+# MySQL
+ssh ubuntu@13.235.238.208 'sudo systemctl restart mysql'
+```
+
+### View Logs
+
+```bash
+# Ingestion Logs
+ssh ubuntu@13.232.206.53 \
+  'sudo journalctl -u dstreambolt-ingest -n 100 --no-pager'
+
+# Kafka Logs
+ssh -J ubuntu@13.235.238.208 ubuntu@10.0.10.248 \
+  'tail -100 /opt/kafka/logs/server.log'
+
+# Spark Job Logs
+ssh ubuntu@52.66.171.95 'tail -100 /opt/spark/logs/spark-job.log'
+
+# Jenkins Logs
+ssh ubuntu@13.235.238.208 'tail -100 /var/log/jenkins/jenkins.log'
+
+# Grafana Logs
+ssh ubuntu@13.235.238.208 'sudo journalctl -u grafana-server -n 100 --no-pager'
+
+# MySQL Logs
+ssh ubuntu@13.235.238.208 'sudo tail -100 /var/log/mysql/error.log'
+```
+
+### Check Metrics
+
+```bash
+# Ingestion Queue Depth
+ssh ubuntu@13.232.206.53 'ls /opt/dstreambolt/queue/*.gz 2>/dev/null | wc -l'
+
+# Kafka Consumer Lag
+ssh -J ubuntu@13.235.238.208 ubuntu@10.0.10.248 \
+  '/opt/kafka/bin/kafka-consumer-groups.sh --describe \
+   --group spark-consumer --bootstrap-server localhost:9092'
+
+# Spark Executor Memory
+ssh ubuntu@65.0.74.255 'free -h'
+
+# MySQL Database Size
+ssh ubuntu@13.235.238.208 \
+  'mysql -u root -pDStreamBolt2025! -e "
+    SELECT table_schema AS Database,
+           ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS Size_MB
+    FROM information_schema.tables
+    WHERE table_schema = \"dstreambolt_metrics\"
+    GROUP BY table_schema;"'
+
+# Disk Usage
+for ip in 13.235.238.208 13.232.206.53 52.66.171.95 65.0.74.255; do
+  echo "=== $ip ==="
+  ssh -i ~/dstreambolt-access-key.pem ubuntu@$ip 'df -h / | tail -1'
+done
+```
+
+---
+
+## 🐛 Troubleshooting Quick Reference
+
+### Problem: 503 Service Unavailable
+
+```bash
+# Check queue
+ssh ubuntu@13.232.206.53 'ls /opt/dstreambolt/queue/ | wc -l'
+
+# Solution: Clear queue or scale Spark
+ssh ubuntu@13.232.206.53 'sudo systemctl restart dstreambolt-ingest'
+```
+
+### Problem: High Kafka Lag
+
+```bash
+# Check lag
+ssh -J ubuntu@13.235.238.208 ubuntu@10.0.10.248 \
+  '/opt/kafka/bin/kafka-consumer-groups.sh --describe \
+   --group spark-consumer --bootstrap-server localhost:9092'
+
+# Solution: Add Spark executors or increase batch size
+```
+
+### Problem: Spark Job Failed
+
+```bash
+# Check logs
+ssh ubuntu@52.66.171.95 'tail -100 /opt/spark/logs/spark-job.log'
+
+# Check executor status
+curl http://52.66.171.95:8080/json/ | jq '.aliveworkers'
+
+# Restart job
+ssh ubuntu@52.66.171.95 '
+  pkill -f spark_processor
+  cd /opt/dstreambolt/computations
+  ./submit_job.sh
+'
+```
+
+### Problem: MySQL Connection Refused
+
+```bash
+# Check MySQL status
+ssh ubuntu@13.235.238.208 'sudo systemctl status mysql'
+
+# Check connections
+ssh ubuntu@13.235.238.208 \
+  'mysql -u root -pDStreamBolt2025! -e "SHOW PROCESSLIST;"'
+
+# Restart MySQL
+ssh ubuntu@13.235.238.208 'sudo systemctl restart mysql'
+```
+
+---
+
+## 📈 Performance Benchmarks
+
+### Current Capacity (t3.small instances)
+
+| Metric | Value |
+|--------|-------|
+| **Ingestion Throughput** | ~10,000 requests/sec |
+| **Kafka Throughput** | ~50 MB/sec |
+| **Spark Processing Rate** | ~100,000 logs/sec |
+| **MySQL Write Rate** | ~1,000 inserts/sec |
+| **End-to-End Latency** | 30-60 seconds (streaming) |
+| **Storage** | 7-day retention (~100 GB) |
+
+### Scale Limits (Single Region)
+
+| Component | Current | Max Recommended |
+|-----------|---------|-----------------|
+| Ingestion Instances | 1 | 10 |
+| Kafka Brokers | 1 | 3 |
+| Spark Executors | 1 | 10 |
+| Concurrent Requests | 1,000 | 10,000 |
+| Daily Log Volume | 1 GB | 100 GB |
+
+---
+
+## 💰 Cost Summary
+
+| Resource | Monthly Cost (USD) |
+|----------|-------------------|
+| EC2 Instances (5x t3.small) | $75 |
+| EBS Storage (40 GB) | $4 |
+| Application Load Balancer | $16 |
+| Data Transfer (10 GB) | $1 |
+| Secrets Manager (5 secrets) | $2 |
+| **Total** | **~$98/month** |
+
+**Cost Optimization:**
+- Use Reserved Instances: Save 30-40%
+- Use Spot Instances for executors: Save 70%
+- Archive old data to S3 Glacier: Save 90% on storage
+
+---
+
+## 🔗 Quick Links
+
+### Dashboards
+
+- **Load Balancer**: https://dstreambolt.click
+- **Jenkins**: http://13.235.238.208:8081
+- **Grafana**: http://13.235.238.208:3000/grafana
+- **AKHQ (Kafka UI)**: http://13.235.238.208:8080
+- **Spark Master UI**: http://52.66.171.95:8080
+- **Spark Worker UI**: http://65.0.74.255:8081
+
+### Documentation
+
+- **Architecture**: [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Operations**: [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md)
+- **Setup**: [setup_scripts/README.md](./setup_scripts/README.md)
+
+### Code Repository
+
+- **GitHub**: https://github.com/dstreambolt/dstream_cloud
+- **Issues**: https://github.com/dstreambolt/dstream_cloud/issues
+
+---
+
+## 📞 Support
+
+**Email**: support@dstreambolt.click  
+**On-Call**: on-call-engineer@dstreambolt.click  
+**Slack**: dstreambolt.slack.com
+
+---
+
+**Last Updated:** December 13, 2025  
+**Version:** 1.0.0
 
