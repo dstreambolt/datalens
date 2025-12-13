@@ -35,6 +35,18 @@ dstream_bolt/
 │   ├── setup_jenkins_jobs.sh         # Quick setup script
 │   └── README.md       # Jenkins jobs documentation
 │
+├── setup_scripts/      # ⭐ Production setup scripts (NEW)
+│   ├── setup_all.sh           # Master orchestrator script
+│   ├── setup_jenkins.sh       # Jenkins CI/CD setup
+│   ├── setup_grafana.sh       # Grafana monitoring setup
+│   ├── setup_mysql.sh         # MySQL database with schema
+│   ├── setup_kafka.sh         # Kafka + Zookeeper
+│   ├── setup_spark_master.sh  # Spark Master + Worker
+│   ├── setup_spark_worker.sh  # Spark Executor
+│   ├── setup_ingestion.sh     # Ingestion API service
+│   ├── setup_akhq.sh          # AKHQ Kafka UI
+│   └── README.md              # Complete setup guide
+│
 ├── examples/           # Example scripts and dashboards
 │   ├── 01-generate-logs.py      # Generate sample logs
 │   ├── 02-send-to-ingest.py     # Send logs to ingestion
@@ -44,8 +56,33 @@ dstream_bolt/
 │   ├── requirements.txt
 │   └── README.md       # Examples documentation
 │
+├── utils/              # Utility scripts
+│   └── login.sh        # ⭐ Smart SSH helper (enhanced)
+│
+├── SETUP_COMPLETE_GUIDE.md      # ⭐ Complete setup walkthrough
+├── INFRASTRUCTURE_STATUS.md     # ⭐ 15-point checklist
 └── README.md           # This file
 ```
+
+## 🆕 Quick Setup (NEW!)
+
+**One-command setup for all infrastructure components:**
+
+```bash
+# 1. SSH to target node
+./utils/login.sh devops
+
+# 2. Copy setup scripts
+scp -i ~/dstreambolt-access-key.pem -r setup_scripts ubuntu@<ip>:/tmp/
+
+# 3. Run setup
+sudo /tmp/setup_scripts/setup_all.sh
+```
+
+**See comprehensive guides:**
+- [SETUP_COMPLETE_GUIDE.md](SETUP_COMPLETE_GUIDE.md) - Complete setup walkthrough
+- [INFRASTRUCTURE_STATUS.md](INFRASTRUCTURE_STATUS.md) - 15-point verification checklist
+- [setup_scripts/README.md](setup_scripts/README.md) - Detailed script documentation
 
 ## 🏗️ Architecture Overview
 

@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'SPARK_MASTER_IPS', defaultValue: '10.0.1.199', description: 'Comma-separated Spark master IPs (private IPs)')
+        string(name: 'SPARK_MASTER_IPS', defaultValue: '10.0.1.10', description: 'Comma-separated Spark master IPs (private IPs)')
         string(name: 'GIT_BRANCH', defaultValue: 'release/v1.0.1', description: 'Git branch to deploy')
         string(name: 'REMOTE_USER', defaultValue: 'ubuntu', description: 'SSH username')
-        string(name: 'KAFKA_BROKER', defaultValue: '10.0.10.101:9092', description: 'Kafka broker')
+        string(name: 'KAFKA_BROKER', defaultValue: '10.0.10.248:9092', description: 'Kafka broker')
         choice(name: 'PROCESSING_MODE', choices: ['batch', 'streaming'], description: 'Processing mode')
         string(name: 'SPARK_DRIVER_MEMORY', defaultValue: '512m', description: 'Driver memory')
         string(name: 'SPARK_EXECUTOR_MEMORY', defaultValue: '512m', description: 'Executor memory')
