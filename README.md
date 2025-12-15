@@ -1,54 +1,59 @@
 # DataLens - Akamai DataStream2 Analytics Platform
 
-> **Cost-optimized, production-ready analytics platform for Akamai CDN logs**  
-> **Built specifically for Mobly: $57/month for 24K visits/day**
+> **Serverless data processing pipeline for Akamai CDN logs**  
+> **Architecture: Lambda → SQS → Spark → RDS → Grafana**
 
-[![AWS](https://img.shields.io/badge/AWS-Serverless-orange)](https://aws.amazon.com/)
+[![AWS](https://img.shields.io/badge/AWS-Lambda%20%2B%20SQS-orange)](https://aws.amazon.com/)
 [![Spark](https://img.shields.io/badge/Apache%20Spark-3.5.0-red)](https://spark.apache.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)](https://www.postgresql.org/)
 [![Grafana](https://img.shields.io/badge/Grafana-OSS-orange)](https://grafana.com/)
 
-**DataLens** is a complete, cost-optimized data pipeline for processing and analyzing Akamai DataStream2 logs for regional ecommerce companies like Mobly.
+**DataLens** is a serverless data processing pipeline that uses AWS Lambda, SQS, standalone Spark cluster, RDS PostgreSQL, and Grafana to process and visualize Akamai DataStream2 logs in real-time.
 
-## 🎯 Perfect for Mobly
+## 🎯 Architecture Highlights
 
-**Traffic Profile**: 24,000 visits/day (~730K/month)  
-**Data Volume**: 50-100 MB/day of Akamai logs  
-**Monthly Cost**: **$57** (vs $646 with generic architecture)  
-**Users**: 600,000 active customers  
-**Region**: Brazil (sa-east-1 São Paulo)
+**Traffic Capacity**: 24,000+ visits/day (~730K/month)  
+**Data Volume**: 50-500 GB/day of Akamai logs  
+**Processing Latency**: <3 minutes end-to-end  
+**Monthly Cost**: **$110** (with full observability)  
 
-### Cost Savings
-- ✅ **91% cheaper** than generic architecture ($57 vs $646)
-- ✅ **8.7x cheaper** than Kubernetes ($57 vs $488)
-- ✅ **Grafana OSS** instead of QuickSight (save $78/month)
-- ✅ **EMR Serverless** instead of 24/7 cluster (save $288/month)
-- ✅ **Right-sized database** db.t4g.micro (save $184/month)
+### Key Components
+- ✅ **Lambda** - S3 event triggers (serverless)
+- ✅ **SQS** - Message buffering and throttle control
+- ✅ **Spark Cluster** - Real-time data processing (EC2)
+- ✅ **RDS PostgreSQL** - Aggregated metrics storage
+- ✅ **Grafana OSS** - Visualization and dashboards
 
-## 🚀 Quick Start for Mobly (30 Minutes)
+## 🚀 Quick Start (20 Minutes)
 
 ```bash
-# 1. Configure AWS
-export AWS_REGION=sa-east-1  # São Paulo
-export CUSTOMER=mobly
+# 1. Prerequisites
+# - AWS CLI configured
+# - Terraform installed
+# - S3 bucket for Akamai logs
 
-# 2. Deploy everything (creates infrastructure)
-./deploy-mobly.sh
+# 2. Deploy infrastructure
+cd terraform-spark-sqs/
+terraform init
+terraform plan
+terraform apply
 
 # 3. Configure Akamai DataStream
-# Point to S3 bucket: mobly-datalens-raw-{account-id}
-# Format: CSV (Structured)
-# Frequency: Every 1 minute
+# Point to S3 bucket: datalens-raw-logs-{account-id}
+# Format: CSV or JSON
+# Frequency: Every 1-5 minutes
 
 # 4. Access Grafana
-# Visit: https://datalens.mobly.com.br
-# (credentials in AWS Secrets Manager)
+# Get Grafana URL from Terraform output
+# Default credentials in AWS Secrets Manager
 ```
 
 That's it! You now have:
-- ✅ S3 bucket for Akamai logs
-- ✅ EMR Serverless for processing (on-demand)
-- ✅ RDS PostgreSQL for metrics (db.t4g.micro)
+- ✅ Lambda triggers on S3 uploads
+- ✅ SQS queue for buffering
+- ✅ Spark cluster for processing (t3.medium)
+- ✅ RDS PostgreSQL for metrics (db.t3.micro)
+- ✅ Grafana for visualization (on Spark master)
 - ✅ Grafana dashboards (unlimited users)
 - ✅ Complete observability
 

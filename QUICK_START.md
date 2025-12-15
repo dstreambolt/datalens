@@ -1,32 +1,56 @@
 # DataLens Quick Start Guide
 
-Get DataLens up and running in 15 minutes!
+Deploy the Lambda → SQS → Spark → RDS → Grafana pipeline in 20 minutes!
 
 ## Prerequisites
 
 ✅ **Required:**
-- Kubernetes cluster (EKS, GKE, AKS, or local minikube)
-- `kubectl` configured and connected to your cluster
-- `helm` 3.x installed
-- AWS account with S3 access
-- Docker (for building custom Spark image)
+- AWS account with admin access
+- AWS CLI configured (`aws configure`)
+- Terraform 1.0+ installed
+- S3 bucket for Akamai logs (or create during deployment)
 
 ✅ **Recommended:**
-- 3+ worker nodes (minimum 8 vCPU, 16GB RAM each)
-- 200GB+ storage capacity
-- AWS CLI configured
+- Domain for Grafana (optional)
+- Basic understanding of Terraform
+- SSH key pair for EC2 access
 
-## Step 1: Prepare AWS S3
+---
 
-### 1.1 Create S3 Bucket
+## Architecture Overview
+
+```
+S3 (Akamai logs)
+    ↓
+Lambda (trigger on .gz upload)
+    ↓
+SQS (buffer & throttle)
+    ↓
+Spark Cluster (EC2 t3.medium)
+    ↓
+RDS PostgreSQL (db.t3.micro)
+    ↓
+Grafana (on Spark master)
+```
+
+**Processing Time**: <3 minutes end-to-end  
+**Monthly Cost**: ~$110
+
+---
+
+## Step 1: Prepare AWS Environment
+
+### 1.1 Create S3 Bucket for Akamai Logs
 
 ```bash
-# Create bucket for Akamai logs
-aws s3 mb s3://datalens-akamai-logs --region us-east-1
+# Create bucket
+export AWS_REGION=us-east-1  # Change to your region
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+aws s3 mb s3://datalens-raw-logs-${ACCOUNT_ID} --region ${AWS_REGION}
 
 # Enable versioning (recommended)
 aws s3api put-bucket-versioning \
-    --bucket datalens-akamai-logs \
+    --bucket datalens-raw-logs-${ACCOUNT_ID} \
     --versioning-configuration Status=Enabled
 ```
 
@@ -37,425 +61,354 @@ In Akamai Control Center:
 2. Create new stream
 3. Select destination: **Amazon S3**
 4. Configure:
-   - Bucket: `datalens-akamai-logs`
-   - Prefix: `logs/`
-   - Upload frequency: **5 minutes**
-   - Compression: **gzip**
-   - Format: **Structured** (space-delimited)
-
-### 1.3 Create IAM User for DataLens
-
-```bash
-# Create IAM user
-aws iam create-user --user-name datalens-s3-reader
-
-# Attach S3 read policy
-cat > datalens-s3-policy.json <<EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject",
-                "s3:ListBucket"
-            ],
-            "Resource": [
-                "arn:aws:s3:::datalens-akamai-logs",
-                "arn:aws:s3:::datalens-akamai-logs/*"
-            ]
-        }
-    ]
-}
-EOF
-
-aws iam put-user-policy \
-    --user-name datalens-s3-reader \
-    --policy-name S3ReadOnly \
-    --policy-document file://datalens-s3-policy.json
-
-# Create access keys
-aws iam create-access-key --user-name datalens-s3-reader
-```
-
-**Save the access key ID and secret!**
+   - **Bucket**: `datalens-raw-logs-{your-account-id}`
+   - **Prefix**: `raw/`
+   - **Format**: CSV (structured)
+   - **Frequency**: Every 1-5 minutes
+   - **Compression**: gzip
 
 ---
 
-## Step 2: Clone Repository
+## Step 2: Deploy Infrastructure with Terraform
+
+### 2.1 Clone Repository
 
 ```bash
 git clone https://github.com/yourusername/datalens.git
-cd datalens
+cd datalens/terraform-spark-sqs/
 ```
+
+### 2.2 Configure Variables
+
+Edit `terraform.tfvars`:
+
+```hcl
+# Required
+aws_region        = "us-east-1"
+project_name      = "datalens"
+environment       = "prod"
+
+# S3 Configuration
+s3_raw_bucket     = "datalens-raw-logs-123456789012"  # Your bucket
+s3_raw_prefix     = "raw/"
+
+# Spark Cluster
+spark_instance_type    = "t3.medium"   # 2 vCPU, 4 GB RAM
+spark_worker_count     = 2             # Master + 1 worker
+
+# Database
+db_instance_class      = "db.t3.micro" # 2 vCPU, 1 GB RAM
+db_allocated_storage   = 20            # GB
+
+# Optional
+grafana_admin_password = "ChangeMe123!"
+```
+
+### 2.3 Deploy
+
+```bash
+# Initialize Terraform
+terraform init
+
+# Review plan
+terraform plan
+
+# Deploy (takes ~10 minutes)
+terraform apply -auto-approve
+```
+
+**What gets created:**
+- ✅ Lambda function (S3 event trigger)
+- ✅ SQS queue (message buffer)
+- ✅ EC2 instances for Spark (master + workers)
+- ✅ RDS PostgreSQL database
+- ✅ Security groups and IAM roles
+- ✅ Grafana on Spark master node
 
 ---
 
-## Step 3: Configure Environment
+## Step 3: Verify Deployment
 
-### 3.1 Set AWS Credentials
+### 3.1 Get Outputs
 
 ```bash
-export AWS_ACCESS_KEY_ID="AKIAXXXXXXXXXXXXXXXX"
-export AWS_SECRET_ACCESS_KEY="your-secret-key"
-export AWS_REGION="us-east-1"
-export S3_BUCKET="datalens-akamai-logs"
+# Get all outputs
+terraform output
+
+# Key outputs:
+# - spark_master_ip: IP address of Spark master
+# - rds_endpoint: Database connection string
+# - grafana_url: Grafana dashboard URL
+# - sqs_queue_url: SQS queue URL
 ```
 
-### 3.2 Update Configuration (Optional)
+### 3.2 Test Lambda Trigger
 
-Edit `k8s/configmaps.yaml` if you need to change defaults:
+```bash
+# Upload a test file to S3
+echo "test data" | gzip > test.csv.gz
+aws s3 cp test.csv.gz s3://datalens-raw-logs-${ACCOUNT_ID}/raw/test.csv.gz
 
-```yaml
-data:
-  S3_BUCKET: "your-bucket-name"
-  S3_REGION: "your-region"
-  S3_PREFIX: "logs/"
+# Check Lambda logs (should see invocation)
+aws logs tail /aws/lambda/datalens-s3-trigger --follow
+
+# Check SQS queue (should see message)
+aws sqs get-queue-attributes \
+    --queue-url $(terraform output -raw sqs_queue_url) \
+    --attribute-names ApproximateNumberOfMessages
 ```
+
+### 3.3 Check Spark Processing
+
+```bash
+# SSH to Spark master
+SPARK_IP=$(terraform output -raw spark_master_ip)
+ssh -i ~/.ssh/your-key.pem ubuntu@${SPARK_IP}
+
+# Check Spark logs
+tail -f /opt/spark/logs/spark-processor.log
+
+# Verify Spark job is running
+ps aux | grep spark
+```
+
+### 3.4 Access Grafana
+
+```bash
+# Get Grafana URL
+GRAFANA_URL=$(terraform output -raw grafana_url)
+echo "Grafana: http://${GRAFANA_URL}:3000"
+
+# Default credentials:
+# Username: admin
+# Password: (from terraform.tfvars or AWS Secrets Manager)
+```
+
+Open in browser: `http://{spark-master-ip}:3000`
 
 ---
 
-## Step 4: Deploy DataLens
+## Step 4: Configure Grafana Dashboards
 
-### Option A: Automated Deployment (Recommended)
+### 4.1 Add PostgreSQL Data Source
 
-```bash
-# Run the all-in-one deployment script
-./scripts/deploy-all.sh
-```
-
-This will:
-- ✅ Create Kubernetes namespace
-- ✅ Install Spark Operator
-- ✅ Deploy Kafka cluster
-- ✅ Deploy TimescaleDB
-- ✅ Deploy MinIO
-- ✅ Deploy Grafana
-- ✅ Create Kafka topics
-- ✅ Initialize database schema
-- ✅ Build and deploy Spark jobs
-
-**Duration:** ~10-15 minutes
-
-### Option B: Manual Step-by-Step
-
-```bash
-# 1. Create namespace
-kubectl apply -f k8s/namespace.yaml
-
-# 2. Create secrets
-kubectl create secret generic aws-credentials \
-    --from-literal=access-key=$AWS_ACCESS_KEY_ID \
-    --from-literal=secret-key=$AWS_SECRET_ACCESS_KEY \
-    -n datalens
-
-# 3. Apply configmaps
-kubectl apply -f k8s/configmaps.yaml
-
-# 4. Install Spark Operator
-helm repo add spark-operator https://googlecloudplatform.github.io/spark-on-k8s-operator
-helm install spark-operator spark-operator/spark-operator \
-    --namespace datalens \
-    --set webhook.enable=true
-
-# 5. Deploy Kafka
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm install kafka bitnami/kafka \
-    --namespace datalens \
-    --set persistence.size=20Gi \
-    --set replicaCount=3
-
-# 6. Deploy TimescaleDB
-helm repo add timescale https://charts.timescale.com
-helm install timescaledb timescale/timescaledb-single \
-    --namespace datalens \
-    --set persistentVolumes.data.size=50Gi
-
-# 7. Deploy Grafana
-helm repo add grafana https://grafana.github.io/helm-charts
-helm install grafana grafana/grafana \
-    --namespace datalens \
-    --set persistence.enabled=true
-
-# 8. Build Spark image
-docker build -t datalens/spark-py:3.5.0 -f Dockerfile.spark .
-
-# 9. Deploy Spark job
-kubectl apply -f k8s/spark/spark-s3-processor.yaml
-```
-
----
-
-## Step 5: Verify Deployment
-
-### 5.1 Check Pod Status
-
-```bash
-kubectl get pods -n datalens
-```
-
-Expected output:
-```
-NAME                                READY   STATUS    RESTARTS   AGE
-kafka-0                             1/1     Running   0          5m
-kafka-1                             1/1     Running   0          5m
-kafka-2                             1/1     Running   0          5m
-timescaledb-0                       1/1     Running   0          5m
-grafana-xxxx-yyyy                   1/1     Running   0          5m
-spark-operator-xxxx-yyyy            1/1     Running   0          5m
-```
-
-### 5.2 Check Spark Application
-
-```bash
-kubectl get sparkapplications -n datalens
-```
-
-Expected:
-```
-NAME                    STATUS      AGE
-akamai-s3-processor     RUNNING     2m
-```
-
-### 5.3 View Logs
-
-```bash
-# Spark driver logs
-kubectl logs -f -l app=datalens-spark-driver -n datalens
-
-# Kafka logs
-kubectl logs kafka-0 -n datalens
-
-# TimescaleDB logs
-kubectl logs timescaledb-0 -n datalens
-```
-
----
-
-## Step 6: Access Dashboards
-
-### 6.1 Get Grafana Password
-
-```bash
-kubectl get secret grafana-credentials -n datalens \
-    -o jsonpath='{.data.admin-password}' | base64 -d
-echo
-```
-
-### 6.2 Port Forward Grafana
-
-```bash
-kubectl port-forward svc/grafana 3000:80 -n datalens
-```
-
-Open browser: **http://localhost:3000**
-
-Login:
-- Username: `admin`
-- Password: (from step 6.1)
-
-### 6.3 Access Spark UI
-
-```bash
-kubectl port-forward svc/akamai-s3-processor-ui 4040:4040 -n datalens
-```
-
-Open browser: **http://localhost:4040**
-
----
-
-## Step 7: Test with Sample Data
-
-### 7.1 Upload Sample Akamai Log
-
-Create a sample log file:
-
-```bash
-cat > sample-akamai.log <<'EOF'
-1 123456 req001 1702512000 12345 1 2 2 602093 4995 203.0.113.45 200 HTTPS cdn.example.com GET /video/stream.m3u8 443 5000 application/vnd.apple.mpegurl Mozilla/5.0+(iPhone) 0 TLSv1.3 484 484 232 quality=high 5000 1MB-10MB 1 1 1 0 en-US session123 bytes=0-1000 https://example.com/player 192.0.2.100 3600 100 50 200 - 15 1 15001 2500 500 0 1 //BC/xyz 1 US SanFrancisco California 203.0.113.45 US 1 - - - - 1 1 0 - custom123
-EOF
-
-# Compress
-gzip sample-akamai.log
-
-# Upload to S3
-aws s3 cp sample-akamai.log.gz \
-    s3://datalens-akamai-logs/logs/2025/12/13/00/
-```
-
-### 7.2 Trigger Processing
-
-```bash
-# The Spark job will automatically detect and process new files
-# Or manually trigger:
-kubectl delete sparkapplication akamai-s3-processor -n datalens
-kubectl apply -f k8s/spark/spark-s3-processor.yaml
-```
-
-### 7.3 Verify Data in TimescaleDB
-
-```bash
-# Connect to TimescaleDB
-kubectl exec -it timescaledb-0 -n datalens -- psql -U postgres -d datalens_metrics
-
-# Query data
-SELECT COUNT(*) FROM akamai_logs;
-SELECT country, COUNT(*) FROM akamai_logs GROUP BY country;
-```
-
----
-
-## Step 8: Configure Grafana Dashboards
-
-### 8.1 Add TimescaleDB Data Source
-
-In Grafana:
-1. Go to **Configuration** → **Data Sources**
-2. Click **Add data source**
+1. Login to Grafana
+2. Go to **Configuration** → **Data Sources** → **Add data source**
 3. Select **PostgreSQL**
 4. Configure:
-   - Host: `timescaledb.datalens.svc.cluster.local:5432`
-   - Database: `datalens_metrics`
-   - User: `postgres`
-   - Password: (from secrets)
-   - SSL Mode: `require`
-   - Version: 12+
-   - TimescaleDB: **enabled**
+   ```
+   Host: {rds-endpoint}:5432
+   Database: datalens
+   User: datalens_user
+   Password: (from AWS Secrets Manager)
+   SSL Mode: require
+   ```
 5. Click **Save & Test**
 
-### 8.2 Import Pre-built Dashboard
+### 4.2 Import Dashboards
 
 ```bash
-# Import dashboard JSON
-kubectl exec -it grafana-xxxx-yyyy -n datalens -- sh
-cd /var/lib/grafana/dashboards
-# Copy dashboard JSONs from repository
+# Import pre-built dashboard
+cd ../dashboards/
+./import-dashboards.sh
 ```
 
-Or use Grafana UI:
-1. **Dashboards** → **Import**
-2. Upload `dashboards/performance.json`
-3. Select TimescaleDB data source
-4. Click **Import**
-
-### 8.3 Create Custom Dashboard
-
-Example query for request rate:
-
-```sql
-SELECT 
-    time_bucket('5 minutes', request_timestamp) AS time,
-    COUNT(*) as requests_per_5min
-FROM akamai_logs
-WHERE request_timestamp > NOW() - INTERVAL '1 hour'
-GROUP BY time
-ORDER BY time;
-```
+Or manually import `customer-analytics-dashboard.json` via Grafana UI.
 
 ---
 
-## Step 9: Production Checklist
+## Step 5: Monitoring & Operations
 
-Before going to production:
+### 5.1 Check SQS Queue Depth
 
-- [ ] **Security**
-  - [ ] Enable network policies
-  - [ ] Rotate all default passwords
-  - [ ] Configure TLS for all services
-  - [ ] Set up RBAC properly
+```bash
+# Monitor queue depth
+watch -n 5 'aws sqs get-queue-attributes \
+    --queue-url $(terraform output -raw sqs_queue_url) \
+    --attribute-names ApproximateNumberOfMessages \
+    --query "Attributes.ApproximateNumberOfMessages" \
+    --output text'
+```
 
-- [ ] **Monitoring**
-  - [ ] Deploy Prometheus for metrics
-  - [ ] Set up alerts for job failures
-  - [ ] Configure log aggregation (ELK/Loki)
+**Healthy**: < 100 messages  
+**Warning**: 100-1000 messages (may need more Spark workers)  
+**Critical**: > 1000 messages (Spark can't keep up)
 
-- [ ] **Backup**
-  - [ ] Configure TimescaleDB backups to S3
-  - [ ] Export Grafana dashboards to Git
-  - [ ] Document recovery procedures
+### 5.2 Check Spark Performance
 
-- [ ] **Performance**
-  - [ ] Tune Spark executor count based on data volume
-  - [ ] Set up auto-scaling policies
-  - [ ] Configure resource quotas
+```bash
+# Spark Master UI
+open http://${SPARK_IP}:8080
 
-- [ ] **Cost**
-  - [ ] Review S3 lifecycle policies
-  - [ ] Use spot instances for Spark (if on AWS)
-  - [ ] Set up cost alerts
+# Check for:
+# - Active jobs
+# - Worker health
+# - Memory usage
+```
+
+### 5.3 Check Database Size
+
+```bash
+# Connect to RDS
+DB_ENDPOINT=$(terraform output -raw rds_endpoint)
+psql -h ${DB_ENDPOINT} -U datalens_user -d datalens
+
+# Check table sizes
+\dt+
+SELECT pg_size_pretty(pg_database_size('datalens'));
+```
 
 ---
 
 ## Troubleshooting
 
-### Issue: Spark job not starting
+### Lambda Not Triggering
 
 ```bash
-# Check Spark operator logs
-kubectl logs -l app.kubernetes.io/name=spark-operator -n datalens
+# Check Lambda function logs
+aws logs tail /aws/lambda/datalens-s3-trigger --follow
 
-# Check driver pod
-kubectl describe pod -l app=datalens-spark-driver -n datalens
+# Verify S3 event notification
+aws s3api get-bucket-notification-configuration \
+    --bucket datalens-raw-logs-${ACCOUNT_ID}
 
-# Common fix: Resource constraints
-kubectl get resourcequota -n datalens
+# Test Lambda manually
+aws lambda invoke \
+    --function-name datalens-s3-trigger \
+    --payload '{"test": true}' \
+    response.json
 ```
 
-### Issue: Cannot connect to S3
+### SQS Messages Not Being Processed
 
 ```bash
-# Verify credentials
-kubectl get secret aws-credentials -n datalens -o yaml
+# Check Spark consumer logs
+ssh ubuntu@${SPARK_IP}
+tail -f /opt/spark/logs/sqs-consumer.log
 
-# Test S3 access from pod
-kubectl run -it --rm debug --image=amazon/aws-cli --restart=Never -n datalens -- \
-    s3 ls s3://datalens-akamai-logs/
+# Verify SQS permissions
+aws sqs get-queue-attributes \
+    --queue-url $(terraform output -raw sqs_queue_url) \
+    --attribute-names Policy
 ```
 
-### Issue: TimescaleDB connection failed
+### Spark Job Failing
 
 ```bash
-# Check TimescaleDB status
-kubectl logs timescaledb-0 -n datalens
+# Check Spark application logs
+ssh ubuntu@${SPARK_IP}
+cd /opt/spark/logs/
+ls -lt  # Find latest log
 
-# Test connection
-kubectl exec -it timescaledb-0 -n datalens -- \
-    psql -U postgres -d datalens_metrics -c "SELECT version();"
+# Common issues:
+# - Out of memory: Increase instance size
+# - Can't connect to RDS: Check security groups
+# - Can't read from S3: Check IAM role
 ```
 
-### Issue: Kafka consumer lag
+### Database Connection Issues
 
 ```bash
-# Check Kafka topics
-kubectl exec kafka-0 -n datalens -- kafka-topics.sh --list --bootstrap-server localhost:9092
+# Test database connectivity from Spark master
+ssh ubuntu@${SPARK_IP}
+psql -h ${DB_ENDPOINT} -U datalens_user -d datalens
 
-# Check consumer group lag
-kubectl exec kafka-0 -n datalens -- kafka-consumer-groups.sh \
-    --bootstrap-server localhost:9092 \
-    --describe --group datalens-processors
+# If fails, check:
+# 1. Security group allows Spark → RDS (port 5432)
+# 2. RDS is publicly accessible (if needed)
+# 3. Password is correct (check Secrets Manager)
 ```
+
+---
+
+## Scaling
+
+### Increase Spark Capacity
+
+Edit `terraform.tfvars`:
+
+```hcl
+spark_instance_type = "t3.large"    # 2→4 vCPU, 8 GB RAM
+spark_worker_count  = 3             # Add more workers
+```
+
+Apply changes:
+
+```bash
+terraform apply
+```
+
+### Increase Database Size
+
+```hcl
+db_instance_class    = "db.t3.small"  # 2 vCPU, 2 GB RAM
+db_allocated_storage = 50             # Increase storage
+```
+
+### Add Read Replicas
+
+For high query load on Grafana:
+
+```hcl
+enable_read_replica = true
+read_replica_count  = 1
+```
+
+---
+
+## Cost Optimization
+
+### Current Cost (~$110/month)
+
+| Component | Instance | Cost/Month |
+|-----------|----------|------------|
+| Lambda | Pay-per-use | ~$1 |
+| SQS | First 1M free | ~$0 |
+| Spark Master | t3.medium | ~$30 |
+| Spark Worker | t3.medium | ~$30 |
+| RDS | db.t3.micro | ~$15 |
+| Data Transfer | ~5 GB | ~$0.50 |
+| EBS Storage | 60 GB | ~$6 |
+| **Total** | | **~$82** |
+
+### Reduce Costs
+
+1. **Use Spot Instances for Spark** (save 70%):
+   ```hcl
+   spark_use_spot_instances = true
+   ```
+
+2. **Smaller database** (if <100K rows):
+   ```hcl
+   db_instance_class = "db.t4g.micro"  # ARM, cheaper
+   ```
+
+3. **Stop Spark when not processing** (manual):
+   ```bash
+   aws ec2 stop-instances --instance-ids $(terraform output -raw spark_instance_ids)
+   ```
 
 ---
 
 ## Next Steps
 
-1. **Explore the Architecture**: Read [ARCHITECTURE.md](ARCHITECTURE.md) for deep dive
-2. **Use Cases**: Check [USE_CASES.md](USE_CASES.md) for analytics examples
-3. **Operations Guide**: See [OPERATIONS_GUIDE.md](OPERATIONS_GUIDE.md) for day-2 operations
-4. **Customize**: Modify Spark jobs in `spark-jobs/` for your needs
+1. **Review Architecture**: Read [`SPARK_SERVERLESS_ARCHITECTURE.md`](./SPARK_SERVERLESS_ARCHITECTURE.md)
+2. **Understand Decisions**: Read [`TECHNOLOGY_DECISIONS.md`](./TECHNOLOGY_DECISIONS.md)
+3. **Set up Alerts**: Configure CloudWatch alarms
+4. **Backup Strategy**: Set up RDS automated backups
+5. **Production Hardening**: Review [`OPERATIONS_GUIDE.md`](./OPERATIONS_GUIDE.md)
 
 ---
 
-## Getting Help
+## Support
 
-- 📖 **Documentation**: [docs/](docs/)
-- 🐛 **Issues**: https://github.com/yourusername/datalens/issues
-- 💬 **Discussions**: https://github.com/yourusername/datalens/discussions
-- 📧 **Email**: support@datalens.io
+- **Documentation**: [`DOCUMENTATION_INDEX.md`](./DOCUMENTATION_INDEX.md)
+- **Architecture Deep Dive**: [`SPARK_SERVERLESS_ARCHITECTURE.md`](./SPARK_SERVERLESS_ARCHITECTURE.md)
+- **Cost Analysis**: [`COST_COMPARISON.md`](./COST_COMPARISON.md)
 
 ---
 
-**Congratulations! DataLens is now running** 🎉
-
-You're ready to process Akamai CDN logs at scale!
+**Deployment Time**: 20 minutes  
+**Processing Latency**: <3 minutes  
+**Monthly Cost**: ~$110 (optimizable to ~$60)
 

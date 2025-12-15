@@ -1,8 +1,8 @@
 # DataLens Documentation Index
 
-## 📚 Complete Documentation Suite (14,926 lines)
+## 📚 Complete Documentation Suite
 
-This repository contains **comprehensive technical documentation** for the DataLens pipeline, analyzing every technology choice with deep technical rationale.
+This repository contains **comprehensive technical documentation** for the DataLens pipeline - a serverless data processing solution using **Lambda, SQS, Spark, RDS PostgreSQL, and Grafana**.
 
 ---
 
@@ -13,7 +13,7 @@ This repository contains **comprehensive technical documentation** for the DataL
 ⏱️ **Read Time**: 5 minutes
 
 **Best For**: Decision-makers who need quick answers:
-- Decision trees for Lambda vs. EC2, SQS vs. Kinesis, Spark vs. Glue
+- Decision trees for Lambda, SQS, Spark, RDS, and Grafana
 - One-sentence rationales for each technology choice
 - Red flags (when to switch technologies)
 - Cost vs. performance matrix
@@ -36,11 +36,11 @@ This repository contains **comprehensive technical documentation** for the DataL
 - **Alternative scenarios** (startup, enterprise, financial services)
 
 **Key Sections**:
-- 5 Decision Matrices (Lambda, SQS, Spark vs. Glue, RDS, Grafana)
+- 5 Decision Matrices (Lambda, SQS, Spark, RDS PostgreSQL, Grafana)
 - Summary Scorecard (8.85/10 average)
 - When to Revisit Decisions (4 triggers)
 
-**Example**: "Why Spark Cluster (7.95/10) beat AWS Glue (5.80/10)"
+**Example**: "Why Spark Cluster (7.95/10) beat AWS Glue (5.80/10) for our use case"
 
 ---
 
@@ -80,9 +80,8 @@ This repository contains **comprehensive technical documentation** for the DataL
 
 | Document | Size | Lines | Purpose |
 |----------|------|-------|---------|
-| **MOBLY_ARCHITECTURE.md** | 42 KB | 1,200+ | Mobly-specific architecture |
 | **COST_COMPARISON.md** | 11 KB | 350+ | Cost analysis across solutions |
-| **PROJECT_SUMMARY.md** | 10 KB | 300+ | Executive summary |
+| **README.md** | 18 KB | 500+ | Project overview |
 
 ### Operations & Deployment
 
@@ -92,15 +91,15 @@ This repository contains **comprehensive technical documentation** for the DataL
 | **DEPLOYMENT_CHECKLIST.md** | 11 KB | 350+ | Pre-deployment checklist |
 | **QUICK_START.md** | 10 KB | 300+ | Fast deployment guide |
 
-### Legacy Documents (Previous Iterations)
+### Reference Documents
 
 | Document | Size | Lines | Purpose |
 |----------|------|-------|---------|
-| SERVERLESS_ARCHITECTURE.md | 15 KB | 450+ | Earlier serverless design |
-| LAMBDA_VS_POLLING_DEEPDIVE.md | 21 KB | 600+ | Lambda decision analysis |
-| COMPLETE_SOLUTION.md | 13 KB | 400+ | Initial solution design |
+| **QUICK_REFERENCE.md** | 9.4 KB | 280+ | Quick commands |
+| **SECRETS_MANAGEMENT.md** | 9 KB | 270+ | AWS Secrets Manager guide |
+| **CLEANUP_SUMMARY.md** | 8 KB | 250+ | Repository cleanup report |
 
-**Total Documentation**: 14,926 lines across 24 files
+**Total Documentation**: ~3,500 lines across 14 core files
 
 ---
 
@@ -162,9 +161,9 @@ This repository contains **comprehensive technical documentation** for the DataL
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Total Lines** | 14,926 | Across 24 markdown files |
+| **Total Lines** | ~3,500 | Across 14 core markdown files |
 | **Core Architecture** | 1,613 lines | 3 main documents |
-| **Decision Analysis** | 5 components | Scored 0-10 with rationale |
+| **Decision Analysis** | 5 components | Lambda, SQS, Spark, RDS, Grafana |
 | **Alternatives Evaluated** | 25+ options | Every component has 3-5 alternatives |
 | **Cost Scenarios** | 6 architectures | $18/month to $450/month |
 | **Deployment Time** | 20 minutes | One-click Terraform |
@@ -229,7 +228,7 @@ This repository contains **comprehensive technical documentation** for the DataL
 1. **TECHNOLOGY_DECISIONS.md** (15 min) → Component-by-component analysis
 2. **SPARK_SERVERLESS_ARCHITECTURE.md** (45 min) → Deep technical details
 3. **ALTERNATIVE_ARCHITECTURES** section (30 min) → Evaluate alternatives
-4. **MOBLY_ARCHITECTURE.md** (30 min) → Customer-specific design
+4. **COST_COMPARISON.md** (30 min) → Understand TCO and scaling
 
 **Outcome**: Can design and defend architecture choices
 
