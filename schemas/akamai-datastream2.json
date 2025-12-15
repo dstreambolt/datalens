@@ -1,0 +1,354 @@
+{
+  "name": "AkamaiDataStream2Schema",
+  "version": "1.0",
+  "description": "Schema for Akamai DataStream2 logs",
+  "fields": [
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Stream version identifier"
+    },
+    {
+      "name": "cp",
+      "type": "integer",
+      "description": "CP code - Content Provider identifier"
+    },
+    {
+      "name": "reqId",
+      "type": "string",
+      "description": "Unique request identifier"
+    },
+    {
+      "name": "reqTimeSec",
+      "type": "long",
+      "description": "Request timestamp in seconds (Unix epoch)"
+    },
+    {
+      "name": "streamId",
+      "type": "integer",
+      "description": "DataStream configuration ID"
+    },
+    {
+      "name": "edgeAttempts",
+      "type": "integer",
+      "description": "Number of edge server attempts"
+    },
+    {
+      "name": "deliveryPolicyReqStatus",
+      "type": "integer",
+      "description": "Delivery policy request status"
+    },
+    {
+      "name": "deliveryPolicyId",
+      "type": "integer",
+      "description": "Delivery policy identifier"
+    },
+    {
+      "name": "arlid",
+      "type": "integer",
+      "description": "ARL identifier"
+    },
+    {
+      "name": "bytes",
+      "type": "long",
+      "description": "Bytes transferred to client"
+    },
+    {
+      "name": "cliIP",
+      "type": "string",
+      "description": "Client IP address"
+    },
+    {
+      "name": "statusCode",
+      "type": "integer",
+      "description": "HTTP status code"
+    },
+    {
+      "name": "proto",
+      "type": "string",
+      "description": "Protocol type (HTTP/HTTPS)"
+    },
+    {
+      "name": "reqHost",
+      "type": "string",
+      "description": "Request hostname"
+    },
+    {
+      "name": "reqMethod",
+      "type": "string",
+      "description": "HTTP request method"
+    },
+    {
+      "name": "reqPath",
+      "type": "string",
+      "description": "Request URI path"
+    },
+    {
+      "name": "reqPort",
+      "type": "integer",
+      "description": "Request port"
+    },
+    {
+      "name": "rspContentLen",
+      "type": "long",
+      "description": "Response content length"
+    },
+    {
+      "name": "rspContentType",
+      "type": "string",
+      "description": "Response content type"
+    },
+    {
+      "name": "UA",
+      "type": "string",
+      "description": "User agent string"
+    },
+    {
+      "name": "tlsOverheadTimeMSec",
+      "type": "integer",
+      "description": "TLS overhead time in milliseconds"
+    },
+    {
+      "name": "tlsVersion",
+      "type": "string",
+      "description": "TLS protocol version"
+    },
+    {
+      "name": "objSize",
+      "type": "long",
+      "description": "Object size in bytes"
+    },
+    {
+      "name": "uncompressedSize",
+      "type": "long",
+      "description": "Uncompressed object size"
+    },
+    {
+      "name": "overheadBytes",
+      "type": "long",
+      "description": "Protocol overhead bytes"
+    },
+    {
+      "name": "queryStr",
+      "type": "string",
+      "description": "URL query string"
+    },
+    {
+      "name": "totalBytes",
+      "type": "long",
+      "description": "Total bytes transferred"
+    },
+    {
+      "name": "fileSizeBucket",
+      "type": "string",
+      "description": "File size category"
+    },
+    {
+      "name": "downloadInitiated",
+      "type": "integer",
+      "description": "Download initiation flag"
+    },
+    {
+      "name": "downloadsCompleted",
+      "type": "integer",
+      "description": "Download completion flag"
+    },
+    {
+      "name": "edgeIPBinding",
+      "type": "integer",
+      "description": "Edge IP binding status"
+    },
+    {
+      "name": "tlsEarlyData",
+      "type": "integer",
+      "description": "TLS early data flag"
+    },
+    {
+      "name": "accLang",
+      "type": "string",
+      "description": "Accept-Language header"
+    },
+    {
+      "name": "cookie",
+      "type": "string",
+      "description": "Cookie header value"
+    },
+    {
+      "name": "range",
+      "type": "string",
+      "description": "Range request header"
+    },
+    {
+      "name": "referer",
+      "type": "string",
+      "description": "HTTP Referer header"
+    },
+    {
+      "name": "xForwardedFor",
+      "type": "string",
+      "description": "X-Forwarded-For header"
+    },
+    {
+      "name": "maxAgeSec",
+      "type": "integer",
+      "description": "Cache max-age in seconds"
+    },
+    {
+      "name": "reqEndTimeMSec",
+      "type": "long",
+      "description": "Request end time in milliseconds"
+    },
+    {
+      "name": "turnAroundTimeMSec",
+      "type": "long",
+      "description": "Turnaround time in milliseconds"
+    },
+    {
+      "name": "transferTimeMSec",
+      "type": "long",
+      "description": "Transfer time in milliseconds"
+    },
+    {
+      "name": "errorCode",
+      "type": "string",
+      "description": "Error code if any"
+    },
+    {
+      "name": "dnsLookupTimeMSec",
+      "type": "integer",
+      "description": "DNS lookup time in milliseconds"
+    },
+    {
+      "name": "lastByte",
+      "type": "integer",
+      "description": "Last byte flag"
+    },
+    {
+      "name": "asn",
+      "type": "integer",
+      "description": "Autonomous System Number"
+    },
+    {
+      "name": "timeToFirstByte",
+      "type": "long",
+      "description": "Time to first byte in milliseconds"
+    },
+    {
+      "name": "startupError",
+      "type": "integer",
+      "description": "Startup error flag"
+    },
+    {
+      "name": "downloadTime",
+      "type": "long",
+      "description": "Total download time in milliseconds"
+    },
+    {
+      "name": "throughput",
+      "type": "long",
+      "description": "Throughput in bytes per second"
+    },
+    {
+      "name": "prefetchMidgressHits",
+      "type": "integer",
+      "description": "Prefetch midgress cache hits"
+    },
+    {
+      "name": "cacheStatus",
+      "type": "integer",
+      "description": "Cache status code"
+    },
+    {
+      "name": "breadcrumbs",
+      "type": "string",
+      "description": "Request breadcrumbs for debugging"
+    },
+    {
+      "name": "cacheable",
+      "type": "integer",
+      "description": "Cacheability flag"
+    },
+    {
+      "name": "country",
+      "type": "string",
+      "description": "Client country code"
+    },
+    {
+      "name": "city",
+      "type": "string",
+      "description": "Client city"
+    },
+    {
+      "name": "state",
+      "type": "string",
+      "description": "Client state/province"
+    },
+    {
+      "name": "edgeIP",
+      "type": "string",
+      "description": "Edge server IP address"
+    },
+    {
+      "name": "serverCountry",
+      "type": "string",
+      "description": "Server country code"
+    },
+    {
+      "name": "billingRegion",
+      "type": "integer",
+      "description": "Billing region identifier"
+    },
+    {
+      "name": "securityRules",
+      "type": "string",
+      "description": "Security/WAF rules triggered"
+    },
+    {
+      "name": "ewUsageInfo",
+      "type": "string",
+      "description": "EdgeWorkers usage information"
+    },
+    {
+      "name": "ewExecutionInfo",
+      "type": "string",
+      "description": "EdgeWorkers execution details"
+    },
+    {
+      "name": "cmcd",
+      "type": "string",
+      "description": "Common Media Client Data"
+    },
+    {
+      "name": "deliveryType",
+      "type": "integer",
+      "description": "Content delivery type"
+    },
+    {
+      "name": "deliveryFormat",
+      "type": "integer",
+      "description": "Content delivery format"
+    },
+    {
+      "name": "mediaEncryption",
+      "type": "integer",
+      "description": "Media encryption flag"
+    },
+    {
+      "name": "contentProtectionInfo",
+      "type": "string",
+      "description": "Content protection information"
+    },
+    {
+      "name": "customField",
+      "type": "string",
+      "description": "Custom field for additional data"
+    }
+  ],
+  "partitioning": {
+    "strategy": "time-based",
+    "keys": ["year", "month", "day", "hour"]
+  },
+  "compression": "gzip",
+  "encoding": "UTF-8"
+}
+

@@ -1,0 +1,22 @@
+FROM apache/spark-py:v3.5.0
+
+USER root
+
+# Install additional Python packages
+RUN pip install --no-cache-dir \
+    boto3==1.34.0 \
+    kafka-python==2.0.2 \
+    psycopg2-binary==2.9.9 \
+    requests==2.31.0
+
+# Copy Spark job files
+COPY spark-jobs/s3-processor/s3_processor.py /opt/spark/work-dir/
+COPY schemas/akamai-datastream2.json /opt/spark/work-dir/schemas/
+
+# Set permissions
+RUN chmod -R 755 /opt/spark/work-dir
+
+USER 185
+
+WORKDIR /opt/spark/work-dir
+

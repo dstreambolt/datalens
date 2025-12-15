@@ -4,7 +4,144 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="11fd59ec-5b4e-4590-9bf3-4eaa8ae15a3e" name="Changes" comment="" />
+    <list default="true" id="11fd59ec-5b4e-4590-9bf3-4eaa8ae15a3e" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/COST_COMPARISON.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/DEPLOYMENT_CHECKLIST.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/DOCUMENTATION_INDEX.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Dockerfile.spark" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/QUICK_DECISION_REFERENCE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/SPARK_SERVERLESS_ARCHITECTURE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/TECHNOLOGY_DECISIONS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/dashboards/mobly/business-insights.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/ARCHITECTURE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/COST_OPTIMIZED_ARCHITECTURE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/EXECUTIVE_DASHBOARDS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/INDEX.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/OBSERVABILITY_GUIDE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/STORAGE_ARCHITECTURE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/SYSTEM_DIAGRAM.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/USE_CASES.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/k8s/configmaps.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/k8s/namespace.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/k8s/spark/spark-s3-processor.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/schemas/akamai-datastream2.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/scripts/deploy-all.sh" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/scripts/test-pipeline.sh" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/spark/process_akamai_logs.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/terraform-spark-sqs/main.tf" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/terraform-spark-sqs/spark_cluster.tf" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/utils/cost-comparison.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ARCHITECTURE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/DOCUMENTATION_COMPLETE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/INFRASTRUCTURE_STATUS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/QUICK_REFERENCE.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/QUICK_START.md" beforeDir="false" afterPath="$PROJECT_DIR$/QUICK_START.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/SETUP_COMPLETE_GUIDE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/ca/ca-cert.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/ca/ca-cert.srl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/ca/ca-key.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/client/client-cert.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/client/client-key.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/client/client.csr" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/server/server-cert.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/server/server-key.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/certs/server/server.csr" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/.gitattributes" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/build.sbt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/build.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/build_and_commit.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/log_schema.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/project/build.properties" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/project/plugins.sbt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/requirements.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/spark_processor.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/spark_processor_raw.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/src/main/scala/com/dstreambolt/processor/SecretsManagerUtil.scala" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/src/main/scala/com/dstreambolt/processor/SparkProcessor.scala" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/computations/submit_scala_job.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/build-deploy-scala-spark.jenkinsfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/continuous-log-generator.jenkinsfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/continuous-log-sender.jenkinsfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/deploy-ingestion.jenkinsfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/deploy-prebuilt-scala-spark.jenkinsfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/deploy-spark-jobs.jenkinsfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/job-continuous-log-generator.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/job-continuous-log-sender.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/job-deploy-prebuilt-scala.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/job-ingestion.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/job-scala-spark.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/job-spark.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/setup_continuous_log_job.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/setup_groovy_log_sender.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/setup_log_sender_job.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/setup_prebuilt_job.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/jenkins/setup_scala_spark_job.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/landing-page.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/observability/create_observability_tables.sql" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/observability/deploy_kafka_collector.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/observability/kafka-metrics-collector.service" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/observability/kafka_metrics_collector.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/observability/sessionmanager-bundle.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/observability/setup_observability.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_akhq.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_all.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_grafana.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_ingestion.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_jenkins.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_kafka.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_mysql.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_spark_master.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup_scripts/setup_spark_worker.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/sql/customer_analytics_tables.sql" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/.terraform.lock.hcl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/ONE_CLICK_DEPLOYMENT.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/create_deployment_dirs.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/create_mysql_tables.sql" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/deploy.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/diagnose_spark_connectivity.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/fix_ingest_env.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/fix_ingest_service.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/fix_kafka_jars.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/install_sbt_jenkins.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/install_sbt_jenkins_fixed.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/alb/landing-page-simple.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/alb/landing-page.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/alb/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/alb/outputs.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/compute/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/devops/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/ingest/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/kafka/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/landing-page/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/modules/networking/main.tf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/mtls-plan" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/optimize_compute.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/setup_grafana_dashboard.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/setup_mysql_tables.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/terraform.tfstate" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/terraform.tfstate.backup" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/terraform.tfvars" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/test_spark_job_with_packages.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/test_spark_processor.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/tfplan" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/upgrade.tfplan" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/upgrade_compute.tfplan" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/upgrade_compute_only.tfplan" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/user_data/compute.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/user_data/devops.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/user_data/ingest.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/user_data/kafka.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/user_data/spark_executor.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/user_data/spark_master.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/terraform/verify.sh" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -152,6 +289,8 @@
       <workItem from="1765622157286" duration="1182000" />
       <workItem from="1765623377167" duration="232000" />
       <workItem from="1765623639991" duration="3118000" />
+      <workItem from="1765640200781" duration="143000" />
+      <workItem from="1765640366571" duration="14122000" />
     </task>
     <servers />
   </component>

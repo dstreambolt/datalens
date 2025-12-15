@@ -1,0 +1,471 @@
+{
+  "dashboard": {
+    "title": "Mobly Business Insights",
+    "tags": ["mobly", "business", "akamai"],
+    "timezone": "America/Sao_Paulo",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5m",
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Total Requests (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT SUM(request_count) AS total FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours'",
+          "format": "time_series"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 20000, "color": "yellow"},
+                {"value": 30000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Cache Hit Rate (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT AVG(cache_hit_rate) * 100 AS cache_hit_rate FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours'",
+          "format": "time_series"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 70, "color": "yellow"},
+                {"value": 85, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Average Response Time (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT AVG(avg_response_time_ms) AS avg_response FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours'",
+          "format": "time_series"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 500, "color": "yellow"},
+                {"value": 1000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Error Rate (Last 24h)",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT (SUM(error_count) * 100.0 / NULLIF(SUM(request_count), 0)) AS error_rate FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours'",
+          "format": "time_series"
+        }],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 1, "color": "yellow"},
+                {"value": 5, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Requests Over Time (Hourly)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT hour AS time, SUM(request_count) AS \"Requests\" FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour",
+          "format": "time_series"
+        }],
+        "yaxes": [
+          {"format": "short", "label": "Requests"},
+          {"format": "short"}
+        ],
+        "xaxis": {"mode": "time"},
+        "fill": 1,
+        "linewidth": 2,
+        "tooltip": {"shared": true, "sort": 0}
+      },
+      {
+        "id": 6,
+        "title": "Cache Hit Rate Trend",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT hour AS time, AVG(cache_hit_rate) * 100 AS \"Cache Hit Rate (%)\" FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour",
+          "format": "time_series"
+        }],
+        "yaxes": [
+          {"format": "percent", "label": "Cache Hit Rate"},
+          {"format": "short"}
+        ],
+        "xaxis": {"mode": "time"},
+        "fill": 1,
+        "linewidth": 2,
+        "alert": {
+          "conditions": [{
+            "evaluator": {"params": [70], "type": "lt"},
+            "operator": {"type": "and"},
+            "query": {"params": ["A", "5m", "now"]},
+            "reducer": {"params": [], "type": "avg"},
+            "type": "query"
+          }],
+          "executionErrorState": "alerting",
+          "frequency": "5m",
+          "handler": 1,
+          "name": "Cache Hit Rate Alert",
+          "noDataState": "no_data",
+          "notifications": []
+        }
+      },
+      {
+        "id": 7,
+        "title": "Response Time Distribution (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "datasource": "PostgreSQL",
+            "rawSql": "SELECT hour AS time, AVG(p50_response_time_ms) AS \"P50 (Median)\" FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour",
+            "format": "time_series"
+          },
+          {
+            "datasource": "PostgreSQL",
+            "rawSql": "SELECT hour AS time, AVG(p95_response_time_ms) AS \"P95\" FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour",
+            "format": "time_series"
+          },
+          {
+            "datasource": "PostgreSQL",
+            "rawSql": "SELECT hour AS time, AVG(p99_response_time_ms) AS \"P99\" FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours' GROUP BY hour ORDER BY hour",
+            "format": "time_series"
+          }
+        ],
+        "yaxes": [
+          {"format": "ms", "label": "Response Time"},
+          {"format": "short"}
+        ],
+        "xaxis": {"mode": "time"},
+        "fill": 0,
+        "linewidth": 2
+      },
+      {
+        "id": 8,
+        "title": "Traffic by Country (Last 24h)",
+        "type": "piechart",
+        "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT country AS metric, SUM(request_count) AS value FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours' GROUP BY country ORDER BY value DESC LIMIT 10",
+          "format": "table"
+        }],
+        "options": {
+          "legend": {"display": true, "placement": "right"},
+          "pieType": "pie",
+          "displayLabels": ["name", "percent"]
+        }
+      },
+      {
+        "id": 9,
+        "title": "Top 10 Slowest URLs (Last 24h)",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT req_path AS \"URL\", request_count AS \"Requests\", ROUND(avg_response_time_ms::numeric, 0) AS \"Avg Response (ms)\", ROUND(p95_response_time_ms::numeric, 0) AS \"P95 (ms)\", ROUND(cache_hit_rate::numeric * 100, 1) AS \"Cache Hit (%)\" FROM performance_metrics WHERE hour >= NOW() - INTERVAL '24 hours' ORDER BY avg_response_time_ms DESC LIMIT 10",
+          "format": "table"
+        }],
+        "options": {
+          "showHeader": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Avg Response (ms)"},
+              "properties": [{
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }, {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"value": null, "color": "green"},
+                    {"value": 500, "color": "yellow"},
+                    {"value": 1000, "color": "red"}
+                  ]
+                }
+              }]
+            }
+          ]
+        }
+      },
+      {
+        "id": 10,
+        "title": "Traffic by Device Type (Last 7 days)",
+        "type": "piechart",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT device_type AS metric, SUM(request_count) AS value FROM business_metrics WHERE hour >= NOW() - INTERVAL '7 days' GROUP BY device_type ORDER BY value DESC",
+          "format": "table"
+        }],
+        "options": {
+          "legend": {"display": true, "placement": "right"},
+          "pieType": "donut",
+          "displayLabels": ["name", "percent"]
+        }
+      },
+      {
+        "id": 11,
+        "title": "Traffic by Browser (Last 7 days)",
+        "type": "bargauge",
+        "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT browser AS metric, SUM(request_count) AS value FROM business_metrics WHERE hour >= NOW() - INTERVAL '7 days' GROUP BY browser ORDER BY value DESC LIMIT 10",
+          "format": "table"
+        }],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Security Events (Last 24h)",
+        "type": "logs",
+        "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT timestamp AS time, event_type, cli_ip AS \"Client IP\", country, req_path AS \"Path\", status_code FROM security_events WHERE timestamp >= NOW() - INTERVAL '24 hours' ORDER BY timestamp DESC LIMIT 100",
+          "format": "table"
+        }],
+        "options": {
+          "showTime": true,
+          "showLabels": false,
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 13,
+        "title": "Daily Traffic Trend (Last 30 days)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 36, "w": 24, "h": 8},
+        "targets": [
+          {
+            "datasource": "PostgreSQL",
+            "rawSql": "SELECT date AS time, total_requests AS \"Total Requests\" FROM daily_metrics WHERE date >= CURRENT_DATE - INTERVAL '30 days' ORDER BY date",
+            "format": "time_series"
+          },
+          {
+            "datasource": "PostgreSQL",
+            "rawSql": "SELECT date AS time, unique_visitors AS \"Unique Visitors\" FROM daily_metrics WHERE date >= CURRENT_DATE - INTERVAL '30 days' ORDER BY date",
+            "format": "time_series"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Count"},
+          {"format": "short"}
+        ],
+        "xaxis": {"mode": "time"},
+        "fill": 1,
+        "linewidth": 2
+      },
+      {
+        "id": 14,
+        "title": "Estimated CDN Cost Savings (Last 30 days)",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 44, "w": 8, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT (SUM(total_bytes) / 1073741824.0 * AVG(cache_hit_rate) * 0.085) AS cost_savings FROM daily_metrics WHERE date >= CURRENT_DATE - INTERVAL '30 days'",
+          "format": "time_series"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2,
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"}
+              ]
+            }
+          }
+        },
+        "description": "Estimated bandwidth cost savings from cache hits (Akamai $0.085/GB)"
+      },
+      {
+        "id": 15,
+        "title": "Performance Score (Last 24h)",
+        "type": "gauge",
+        "gridPos": {"x": 8, "y": 44, "w": 8, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT (AVG(cache_hit_rate) * 50 + (1 - AVG(avg_response_time_ms) / 2000.0) * 30 + (1 - SUM(error_count) * 1.0 / NULLIF(SUM(request_count), 0)) * 20) * 100 AS score FROM hourly_metrics WHERE hour >= NOW() - INTERVAL '24 hours'",
+          "format": "time_series"
+        }],
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 70, "color": "yellow"},
+                {"value": 85, "color": "green"}
+              ]
+            }
+          }
+        },
+        "description": "Composite score: 50% cache hit rate + 30% response time + 20% error rate"
+      },
+      {
+        "id": 16,
+        "title": "Data Freshness",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 44, "w": 8, "h": 4},
+        "targets": [{
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(hour))) / 60.0 AS minutes_since_last_update FROM hourly_metrics",
+          "format": "time_series"
+        }],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "m",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 60, "color": "yellow"},
+                {"value": 120, "color": "red"}
+              ]
+            }
+          }
+        },
+        "description": "Minutes since last data update"
+      }
+    ]
+  },
+  "overwrite": true
+}
+

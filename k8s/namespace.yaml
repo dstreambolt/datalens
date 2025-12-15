@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: datalens
+  labels:
+    name: datalens
+    app: datalens-platform
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: datalens-quota
+  namespace: datalens
+spec:
+  hard:
+    requests.cpu: "50"
+    requests.memory: 100Gi
+    persistentvolumeclaims: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: datalens-limits
+  namespace: datalens
+spec:
+  limits:
+  - max:
+      cpu: "8"
+      memory: 16Gi
+    min:
+      cpu: 100m
+      memory: 128Mi
+    default:
+      cpu: "1"
+      memory: 2Gi
+    defaultRequest:
+      cpu: 500m
+      memory: 1Gi
+    type: Container
+
